@@ -1,0 +1,14 @@
+FROM registry.ocular.co.nz/typo3-11-apache-php82:latest
+
+ARG uid
+ARG username
+
+# COPY conf.d/typo3.ini /usr/local/etc/php/conf.d/
+COPY sites-available/000-default.conf /etc/apache2/sites-available/
+
+RUN docker-php-ext-install exif
+RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - \
+    && apt-get install -y nodejs \
+    && pecl install redis && docker-php-ext-enable redis
+
+RUN adduser --uid $uid --gecos "Apache User" --disabled-password $username

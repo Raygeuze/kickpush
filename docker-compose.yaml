@@ -1,0 +1,111 @@
+version: '3'
+
+services:
+  web:
+    build:
+      context: ./dockerfiles/php
+      args:
+        uid: ${USER_ID}
+        username: ${USER_NAME}
+    restart: unless-stopped
+    container_name: ${PROJECT_LABEL}-web
+    volumes:
+      - ./:/var/www/html
+      - ${USER_COMPOSER_DIR}:${CONTAINER_COMPOSER_DIR}
+    user: ${USER_ID}:${USER_GID}
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    networks:
+      - default
+      - web
+      # - mariadb
+
+  mariadb:
+    image: mariadb:latest
+    restart: unless-stopped
+    container_name: ${PROJECT_LABEL}-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    volumes:
+      - mariadb:/var/lib/mysql
+
+  nginx:
+    image: nginx:alpine
+    container_name: ${PROJECT_LABEL}-nginx
+    restart: unless-stopped
+    ports:
+      - 8080:80
+    volumes:
+      - ./:/var/www/html
+      - ./docker-compose/nginx:/etc/nginx/conf.d/
+    networks:
+      - default
+      - web
+    labels:
+      # General.
+      - "traefik.enable=${TRAEFIK_ENABLE}"
+      # Routers.
+      - "traefik.http.routers.${PROJECT_LABEL}.rule=Host(${HOSTS})"
+      - "traefik.http.routers.${PROJECT_LABEL}.entrypoints=${ENTRYPOINTS}"
+      - "traefik.http.routers.${PROJECT_LABEL}-secured.rule=Host(${HOSTS})"
+      - "traefik.http.routers.${PROJECT_LABEL}-secured.entrypoints=${ENTRYPOINTS_TLS}"
+      # SSL.
+      - "traefik.http.routers.${PROJECT_LABEL}-secured.tls.certresolver=${CERT_RESOLVER}"
+      # Middleware.
+      - "traefik.http.middlewares.${PROJECT_LABEL}-redirectToHttps.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.${PROJECT_LABEL}-redirectToHttps.redirectscheme.permanent=true"
+      # Apply middleware.
+      - "traefik.http.routers.${PROJECT_LABEL}.middlewares=${PROJECT_LABEL}-redirectToHttps@docker"
+      - "traefik.http.services.${PROJECT_LABEL}.loadbalancer.server.port=80"
+      # Basic Auth
+      # - "traefik.http.routers.${PROJECT_LABEL}-secured.middlewares=${PROJECT_LABEL}-www@docker,${PROJECT_LABEL}-password@docker"
+      # - "traefik.http.middlewares.${PROJECT_LABEL}-password.basicauth.users=client:$$apr1$$GfkuoZJ9$$O7xMMrUFReeSCy5I8ykOd."
+  vite:
+    image: node:20
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    command: sh -c "npm install && npm run dev"
+    container_name: ${PROJECT_LABEL}-vite
+    ports:
+      - "5173:5173"
+    networks:
+      - default
+      - web
+    labels:
+      - "traefik.enable=${TRAEFIK_ENABLE}"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite.rule=Host(`${PROJECT_LABEL}.localhost`) && PathPrefix(`/`)"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite.entrypoints=${ENTRYPOINTS}"
+      - "traefik.http.services.${PROJECT_LABEL}-vite.loadbalancer.server.port=5173"
+      - "traefik.http.middlewares.vite-cors.headers.accesscontrolalloworigin=*"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite.middlewares=vite-cors@docker"
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: ${PROJECT_LABEL}-mailhog
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    networks:
+      - default
+      - web
+    labels:
+      - "traefik.enable=${TRAEFIK_ENABLE}"
+      - "traefik.http.routers.${PROJECT_LABEL}-mailhog.rule=Host(mail.${PROJECT_LABEL}.localhost)"
+      - "traefik.http.routers.${PROJECT_LABEL}-mailhog.entrypoints=${ENTRYPOINTS}"
+      - "traefik.http.services.${PROJECT_LABEL}-mailhog.loadbalancer.server.port=8025"
+
+volumes:
+  mariadb:
+
+networks:
+  web:
+    external: true
+  # mariadb:
+  #   external: true
+  default:
+    name: ${PROJECT_LABEL}
