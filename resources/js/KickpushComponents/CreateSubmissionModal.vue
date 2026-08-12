@@ -5,7 +5,7 @@ import DialogModal from '@/Components/DialogModal.vue';
 import { ref } from 'vue';
 import { toast } from 'vue3-toastify';
 import 'vue3-toastify/dist/index.css';
-import Payment from '@/kickpushComponents/Payment.vue';
+import Payment from '@/KickpushComponents/Payment.vue';
 import InputError from '@/Components/InputError.vue';
 import { useCheckoutStore } from '../Stores/checkoutStore';
 

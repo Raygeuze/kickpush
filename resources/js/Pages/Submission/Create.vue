@@ -12,6 +12,7 @@ const props = defineProps({
 const form = useForm({
     title: '',
     description: '',
+    link: '',
     day_id: props.day.id,
 });
 
@@ -25,7 +26,7 @@ const toggleModal = () => {
 
 <template>
     <Head title="Create Submission" />
-    <div class="">
+    <!-- <div class="">
         <h1 class="text-2xl font-bold">Create a Submission</h1>
         <form @submit.prevent="form.post('store')" class="mt-4 max-w-lg">
             <div class="mb-4">
@@ -36,9 +37,13 @@ const toggleModal = () => {
                 <label for="description" class="block text-sm font-medium">Description</label>
                 <textarea id="description" v-model="form.description" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required></textarea>
             </div>
+            <div class="mb-4">
+                <label for="link" class="block text-sm font-medium">Link</label>
+                <textarea id="link" v-model="form.link" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required></textarea>
+            </div>
             <button type="submit" class="bg-blue-500 text-black px-4 py-2 rounded">Create</button>
         </form>
-    </div>
+    </div> -->
 
     <div @click="toggleModal" class="mt-4 max-w-lg cursor-pointer text-blue-500 underline">
         Open Modal
@@ -58,6 +63,10 @@ const toggleModal = () => {
                 <div class="mb-4">
                     <label for="description" class="block text-sm font-medium">Description</label>
                     <textarea id="description" v-model="form.description" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required></textarea>
+                </div>
+                <div class="mb-4">
+                    <label for="link" class="block text-sm font-medium">Link</label>
+                    <textarea id="link" v-model="form.link" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required></textarea>
                 </div>
                 <button type="submit" class="bg-blue-500 text-black px-4 py-2 rounded">Create</button>
 

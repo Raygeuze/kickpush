@@ -22,6 +22,7 @@ class Submission extends Model implements Auditable
         'views',
         'day_id',
         'is_approved',
+        'embed_link'
     ];
 
     // Auditing - For now I am not including votes, downvotes and views to
@@ -29,6 +30,7 @@ class Submission extends Model implements Auditable
     protected $auditInclude = [
         'title',
         'description',
+        'embed_link'
     ];
 
     public function user()

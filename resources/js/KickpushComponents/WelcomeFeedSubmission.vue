@@ -23,7 +23,17 @@ const showFullDescription = () => {
 </script>
 
 <template>
-    <div class="w-1/2" :class="index % 2 === 0 ? 'ml-auto' : ''">
+
+
+    <blockquote class="instagram-media" data-instgrm-permalink="{{submission.link}}"
+        data-instgrm-version="14"
+        style=""> 
+
+    </blockquote>
+
+
+
+    <!-- <div class="w-1/2" :class="index % 2 === 0 ? 'ml-auto' : ''">
         <div class="flex items-center mb-2">
             <Link :href="route('user.show', {id: submission.user.id})" class="flex items-center">
                 <div v-if="$page.props.jetstream.managesProfilePhotos" class="flex text-sm mr-2 border-2 border-transparent rounded-full focus:outline-none focus:border-gray-300 transition">
@@ -54,5 +64,5 @@ const showFullDescription = () => {
         <div class="mt-2 ml-2 text-sm text-gray-500 cursor-pointer">
             <Link :href="route('submissions.show', submission.id)" class="">Votes ({{ votes }}) | Comments ({{ submission.comments_count ? submission.comments_count : 0 }})</Link>
         </div>
-    </div>
+    </div> -->
 </template>

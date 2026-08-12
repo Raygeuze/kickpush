@@ -13,6 +13,7 @@
 
         <!-- Scripts -->
         <!-- <script src="https://js.stripe.com/v3/"></script> -->
+        <script async src="//www.instagram.com/embed.js"></script>
         @routes
         @vite(['resources/js/app.js', "resources/js/Pages/{$page['component']}.vue"])
         @inertiaHead

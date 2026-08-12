@@ -53,6 +53,7 @@ class SubmissionController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'description' => 'required|string',
+            'embed_link' => 'required|string'
         ]);
         $validated['user_id'] = $request->user()->id;
         $validated['day_id'] = $day->id;

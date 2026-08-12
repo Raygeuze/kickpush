@@ -7,10 +7,10 @@ import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
 import NavLink from '@/Components/NavLink.vue';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
-import SearchBar from '@/kickpushComponents/SearchBar.vue';
-import LoginModal from '@/kickpushComponents/LoginModal.vue';
-import RegisterModal from '@/kickpushComponents/RegisterModal.vue';
-import CountdownTimer from '@/kickpushComponents/CountdownTimer.vue';
+import SearchBar from '@/KickpushComponents/SearchBar.vue';
+import LoginModal from '@/KickpushComponents/LoginModal.vue';
+import RegisterModal from '@/KickpushComponents/RegisterModal.vue';
+import CountdownTimer from '@/KickpushComponents/CountdownTimer.vue';
 
 
 defineProps({
@@ -41,7 +41,7 @@ const toggleRegisterModal = () => {
         <Head :title="title" />
 
         <Banner />
-
+        
         <div class="min-h-screen bg-gray-100">
             <nav class="bg-white border-b border-gray-100">
                 <!-- Primary Navigation Menu -->

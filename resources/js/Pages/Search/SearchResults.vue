@@ -3,10 +3,10 @@ import { Head, Link } from '@inertiajs/vue3';
 import { useForm } from '@inertiajs/vue3';
 import { ref, onMounted, onUnmounted } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import DayCard from '@/kickpushComponents/DayCard.vue';
-import Banner from '@/kickpushComponents/Banner.vue';
-import SubmissionCard from '@/kickpushComponents/SubmissionCard.vue';
-import UserCard from '@/kickpushComponents/UserCard.vue';
+import DayCard from '@/KickpushComponents/DayCard.vue';
+import Banner from '@/KickpushComponents/Banner.vue';
+import SubmissionCard from '@/KickpushComponents/SubmissionCard.vue';
+import UserCard from '@/KickpushComponents/UserCard.vue';
 
 const props = defineProps({
     days: Object,

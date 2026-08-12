@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
-import WelcomeFeed from '@/kickpushComponents/WelcomeFeed.vue';
+import WelcomeFeed from '@/KickpushComponents/WelcomeFeed.vue';
 
 defineProps({
     canLogin: {

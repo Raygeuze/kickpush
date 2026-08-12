@@ -13,6 +13,9 @@ use Laravel\Sanctum\HasApiTokens;
 use App\Models\Submission;
 use App\Models\VoteCount;
 use App\Models\BehaviourReport;
+use App\Models\TimerSession;
+use App\Models\Invoice;
+use App\Models\Client;
 use Stripe\StripeClient;
 use Illuminate\Support\Facades\Log;
 
@@ -39,6 +42,7 @@ class User extends Authenticatable
         'country',
         'stripe_account_id',
         'stripe_customer_id',
+        'hourly_rate',
     ];
 
     /**
@@ -72,6 +76,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'hourly_rate' => 'decimal:2',
         ];
     }
 
@@ -84,6 +89,24 @@ class User extends Authenticatable
     public function comments()
     {
         return $this->hasMany(Comment::class);
+    }
+
+    public function timerSessions()
+    {
+        return $this->hasMany(TimerSession::class)
+            ->orderByDesc('created_at');
+    }
+
+    public function invoices()
+    {
+        return $this->hasMany(Invoice::class)
+            ->orderByDesc('created_at');
+    }
+
+    public function clients()
+    {
+        return $this->hasMany(Client::class)
+            ->orderBy('name');
     }
 
     // vote count per day (user -> voteCount -> day)

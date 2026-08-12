@@ -2,7 +2,7 @@
 import { Head, Link } from '@inertiajs/vue3';
 import { useForm } from '@inertiajs/vue3';
 import AdminAppLayout from '@/Layouts/AdminAppLayout.vue';
-import Feed from '@/kickpushComponents/Feed.vue';
+import Feed from '@/KickpushComponents/Feed.vue';
 import { toast } from 'vue3-toastify';
 import { ref } from 'vue';
 

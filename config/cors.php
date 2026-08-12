@@ -18,7 +18,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['http://kickpush.localhost:5173', 'http://kickpush.localhost', 'https://dev.kickpush.io:5173', 'https://dev.kickpush.io'],
+    'allowed_origins' => ['http://kickpush.localhost:5174', 'http://kickpush.localhost', 'https://dev.kickpush.io:5174', 'https://dev.kickpush.io'],
 
     'allowed_origins_patterns' => [],
 

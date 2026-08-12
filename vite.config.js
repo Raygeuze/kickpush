@@ -5,9 +5,9 @@ import vue from '@vitejs/plugin-vue';
 export default defineConfig({
     server: {
         host: '0.0.0.0',
-        port: 5173,
+        port: 5174,
         cors: true,
-        origin: 'http://kickpush.localhost:5173',
+        origin: 'http://kickpush.localhost:5174',
     },
     plugins: [
         laravel({

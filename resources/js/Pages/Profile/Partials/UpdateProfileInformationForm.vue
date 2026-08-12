@@ -17,6 +17,7 @@ const form = useForm({
     _method: 'PUT',
     name: props.user.name,
     email: props.user.email,
+    hourly_rate: props.user.hourly_rate ?? 0,
     photo: null,
 });
 
@@ -174,6 +175,20 @@ const clearPhotoFileInput = () => {
                         A new verification link has been sent to your email address.
                     </div>
                 </div>
+            </div>
+
+            <!-- Hourly Rate -->
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="hourly_rate" value="Hourly Rate (USD)" />
+                <TextInput
+                    id="hourly_rate"
+                    v-model="form.hourly_rate"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    class="mt-1 block w-full"
+                />
+                <InputError :message="form.errors.hourly_rate" class="mt-2" />
             </div>
         </template>
 

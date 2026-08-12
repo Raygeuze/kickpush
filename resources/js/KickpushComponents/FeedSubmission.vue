@@ -3,9 +3,9 @@ import { Head, Link } from '@inertiajs/vue3';
 import { useForm } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import { toast } from 'vue3-toastify';
-import EditFeedSubmission from '@/kickpushComponents/EditFeedSubmission.vue';
+import EditFeedSubmission from '@/KickpushComponents/EditFeedSubmission.vue';
 import CommentFeed from '@/Pages/Submission/Comments/CommentFeed.vue';
-import MoreActions from '@/kickpushComponents/MoreActions.vue';
+import MoreActions from '@/KickpushComponents/MoreActions.vue';
 import { inject } from 'vue';
 
 const utilities = inject('utilities');
@@ -114,8 +114,7 @@ const toggleComments = (submissionId) => {
 </script>
 
 <template>
-    <div class="lg:w-2/3 w-full my-4 lg:pl-2 pl-2" 
-        :class="{'lg:ml-auto': index % 2 === 0, 'border-l-2 border-l-gray-200': hiddenComments.has(submission.id), 'border-l-2 border-l-transparent': !hiddenComments.has(submission.id)}" 
+    <div class="w-fit my-4 lg:pl-2 pl-2" 
         v-if="!showEdit"
         @click.self="toggleComments(submission.id)"
         >
@@ -136,16 +135,21 @@ const toggleComments = (submissionId) => {
                 <div class="">
                     <div class="flex w-full">
                         <div 
-                            class="flex w-full mb-2 p-4 rounded-b-lg rounded-tr-lg cursor-pointer shadow hover:shadow-lg transition" 
-                            :class="index % 2 === 0 ? ' bg-white' : 'bg-blue-100'"
+                            class="flex w-fit mb-2 p-4 rounded-b-lg rounded-tr-lg cursor-pointer shadow hover:shadow-lg transition" 
                             @click.stop="toggleComments(submission.id)"
                         >
-                            <div class="flex-col ">   
+                            <!-- <div class="flex-col ">   
                                 <Link :href="route('submissions.show', submission.id)" class="text-md font-semibold">{{ submission.title }}</Link>
 
                                 <p style="white-space: pre-wrap" class="">{{ description }}</p>
                                 <p v-if="showShowMore" @click.stop="showFullDescription()">{{ showingMore ? 'Show less' : 'Show more' }}</p>
-                            </div>
+                            </div> -->
+
+                            <blockquote class="instagram-media" :data-instgrm-permalink="submission.embed_link"
+                                data-instgrm-version="14"
+                                style=""> 
+                            </blockquote>
+
                         </div>
                         <MoreActions 
                             :parent="submission"
@@ -156,7 +160,7 @@ const toggleComments = (submissionId) => {
                             @setShowEdit="setShowEdit"
                         />
                     </div>
-                    <div class="w-full flex">
+                    <div class="flex">
                         <span v-if="$page.props.auth.user" class="flex items-center gap-1 ml-2 text-gray-500 text-sm cursor-pointer" @click="vote(submission.id)">
                             <i class="fa-regular fa-heart mx-1" :class="submissionsVotedOn.includes(submission.id) ? 'text-green-500' : 'text-gray-500'"></i> {{ votes }}
                         </span>
@@ -172,13 +176,13 @@ const toggleComments = (submissionId) => {
                         <span class="ml-auto mr-8 text-gray-500 text-xs">{{ utilities.timeAgo(submission.created_at) }}</span>
                     </div>
                 </div>
-                <div v-if="hiddenComments.has(submission.id)" :class="index % 2 === 0 ? 'ml-auto' : ''">
+                <div v-if="hiddenComments.has(submission.id)">
                     <CommentFeed :submission="submission" @toggleLoginModal="emit('toggleLoginModal')"></CommentFeed>
                 </div>
             </div>
         </div>
     </div>
 
-    <EditFeedSubmission :class="index % 2 === 0 ? 'ml-auto' : ''" v-if="showEdit" :submission="submission" :user="user" @closeEdit="closeEdit" />
+    <EditFeedSubmission v-if="showEdit" :submission="submission" :user="user" @closeEdit="closeEdit" />
 
 </template>

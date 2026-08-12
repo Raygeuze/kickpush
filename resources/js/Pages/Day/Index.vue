@@ -2,8 +2,8 @@
 import { Head, Link } from '@inertiajs/vue3';
 import { useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import DayCard from '@/kickpushComponents/DayCard.vue';
-import Banner from '@/kickpushComponents/Banner.vue';
+import DayCard from '@/KickpushComponents/DayCard.vue';
+import Banner from '@/KickpushComponents/Banner.vue';
 
 defineProps({
     days: Array,

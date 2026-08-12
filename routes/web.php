@@ -4,6 +4,9 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Models\Day;
+use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\TimerSessionController;
+use App\Http\Controllers\ClientController;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Jetstream\Jetstream;
 use Laravel\Jetstream\Http\Controllers\Inertia\TeamController;
@@ -32,20 +35,25 @@ Route::middleware([
 ])->group(function () {
     Route::get('/', function () {
         
-        $user = Auth::user();
-        $day = \App\Models\Day::latest()
-            ->with('submissions')
-            ->with('topic')
-            ->with('prizePool')
-            ->first();
+        // $user = Auth::user();
+        // $day = \App\Models\Day::latest()
+        //     ->with('submissions')
+        //     ->with('topic')
+        //     ->with('prizePool')
+        //     ->first();
 
-        return Inertia::render('Dashboard', [
+        // return Inertia::render('Dashboard', [
+        //     'canLogin' => Route::has('login'),
+        //     'canRegister' => Route::has('register'),
+        //     'day' => $day,
+        //     'submissions' => $day->submissions()->with('parentComments')->withCount('comments')->paginate(5),
+        //     'user' => $user,
+        //     'todaysVoteCount' => $user ? $user->todaysVoteCount() : null,
+        // ]);
+
+        return Inertia::render('Timer', [
             'canLogin' => Route::has('login'),
             'canRegister' => Route::has('register'),
-            'day' => $day,
-            'submissions' => $day->submissions()->with('parentComments')->withCount('comments')->paginate(5),
-            'user' => $user,
-            'todaysVoteCount' => $user ? $user->todaysVoteCount() : null,
         ]);
     })->name('dashboard');
 });
@@ -90,6 +98,35 @@ Route::get('/contact', function () {
     return Inertia::render('Contact');
 })->name('contact');
 Route::post('/contact/submit', [\App\Http\Controllers\ContactController::class, 'submit'])->name('contact.submit');
+
+Route::middleware('auth')->group(function () {
+    Route::get('/clients/create', [ClientController::class, 'createPage'])->name('clients.createPage');
+    Route::get('/clients', [ClientController::class, 'index'])->name('clients.index');
+    Route::post('/clients/create', [ClientController::class, 'create'])->name('clients.create');
+
+    Route::post('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
+    Route::get('/invoices/latest', [InvoiceController::class, 'latest'])->name('invoices.latest');
+    Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+    Route::get('/invoices/{invoiceId}', [InvoiceController::class, 'show'])->name('invoices.show');
+    Route::get('/invoices/{invoiceId}/details', [InvoiceController::class, 'details'])->name('invoices.details');
+    Route::get('/invoices/{invoiceId}/timer/status', [InvoiceController::class, 'inlineTimerStatus'])->name('invoices.timer.status');
+    Route::post('/invoices/{invoiceId}/timer/start', [InvoiceController::class, 'startInlineTimer'])->name('invoices.timer.start');
+    Route::post('/invoices/{invoiceId}/timer/stop', [InvoiceController::class, 'stopInlineTimer'])->name('invoices.timer.stop');
+    Route::post('/invoices/{invoiceId}/sessions', [InvoiceController::class, 'attachSession'])->name('invoices.sessions.attach');
+    Route::post('/invoices/{invoiceId}/sessions/manual', [InvoiceController::class, 'createManualSession'])->name('invoices.sessions.manual');
+    Route::delete('/invoices/{invoiceId}/sessions/{sessionId}', [InvoiceController::class, 'detachSession'])->name('invoices.sessions.detach');
+    Route::post('/invoices/{invoiceId}/expenses', [InvoiceController::class, 'addExpense'])->name('invoices.expenses.add');
+    Route::delete('/invoices/{invoiceId}/expenses/{expenseId}', [InvoiceController::class, 'removeExpense'])->name('invoices.expenses.remove');
+    Route::post('/invoices/{invoiceId}/finalize', [InvoiceController::class, 'finalize'])->name('invoices.finalize');
+    Route::post('/invoices/{invoiceId}/mark-paid', [InvoiceController::class, 'markPaid'])->name('invoices.markPaid');
+    Route::get('/invoices/{invoiceId}/pdf', [InvoiceController::class, 'downloadPdf'])->name('invoices.pdf');
+
+    Route::get('/timer/status', [TimerSessionController::class, 'status'])->name('timer.status');
+    Route::get('/timer/history', [TimerSessionController::class, 'history'])->name('timer.history');
+    Route::post('/timer/start', [TimerSessionController::class, 'start'])->name('timer.start');
+    Route::post('/timer/stop', [TimerSessionController::class, 'stop'])->name('timer.stop');
+    Route::post('/timer/submit-to-invoice', [TimerSessionController::class, 'submitToInvoice'])->name('timer.submitToInvoice');
+});
 
 //profile stuffs
 // Route::get('/user/disable', [\App\Http\Controllers\UserController::class, 'disable'])->name('user.disable');

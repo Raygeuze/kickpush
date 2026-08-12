@@ -16,6 +16,7 @@ return new class extends Migration
             $table->timestamps();
             $table->string('title');
             $table->longText('description');
+            $table->string('embed_link');
             $table->foreignId('user_id')->constrained();
             $table->integer('votes')->default(0);
             $table->integer('downvotes')->default(0);

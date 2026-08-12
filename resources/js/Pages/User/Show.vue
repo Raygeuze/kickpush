@@ -2,10 +2,10 @@
 import { Head, Link } from '@inertiajs/vue3';
 import { useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Feed from '@/kickpushComponents/Feed.vue';
+import Feed from '@/KickpushComponents/Feed.vue';
 import BehaviourReport from '@/Pages/BehaviourReports/BehaviourReport.vue';
-import SubmissionCard from '@/kickpushComponents/SubmissionCard.vue';
-import UserBanner from '@/kickpushComponents/UserBanner.vue';
+import SubmissionCard from '@/KickpushComponents/SubmissionCard.vue';
+import UserBanner from '@/KickpushComponents/UserBanner.vue';
 import { ref } from 'vue';
 
 const props = defineProps({

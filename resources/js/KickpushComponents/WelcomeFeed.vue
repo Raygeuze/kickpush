@@ -1,7 +1,7 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
 import { useForm } from '@inertiajs/vue3';
-import WelcomeFeedSubmission from '@/kickpushComponents/WelcomeFeedSubmission.vue';
+import WelcomeFeedSubmission from '@/KickpushComponents/WelcomeFeedSubmission.vue';
 import { ref, onMounted, onUnmounted } from 'vue';
 
     const props = defineProps({

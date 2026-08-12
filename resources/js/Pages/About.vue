@@ -1,7 +1,7 @@
 <script setup>
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Banner from '@/kickpushComponents/Banner.vue';
+import Banner from '@/KickpushComponents/Banner.vue';
 </script>
 
 <template>

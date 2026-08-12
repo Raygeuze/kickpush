@@ -1,8 +1,8 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
-import Feed from '@/kickpushComponents/Feed.vue';
+import Feed from '@/KickpushComponents/Feed.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import DayBanner from '@/kickpushComponents/DayBanner.vue';
+import DayBanner from '@/KickpushComponents/DayBanner.vue';
 
 
 defineProps({
@@ -28,7 +28,7 @@ function handleImageError() {
                 <div class="relative w-full">
 
 
-                    <main class="">
+                    <!-- <main class="">
                         <DayBanner :day="day" :is_today="true" />
 
                         <Feed 
@@ -36,7 +36,7 @@ function handleImageError() {
                             :user="user" 
                             :todays-vote-count="todaysVoteCount"
                             :submissions="submissions.data" />
-                    </main>
+                    </main> -->
 
                 </div>
             </div>

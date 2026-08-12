@@ -1,12 +1,12 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
 import { useForm } from '@inertiajs/vue3';
-import FeedSubmission from '@/kickpushComponents/FeedSubmission.vue';
+import FeedSubmission from '@/KickpushComponents/FeedSubmission.vue';
 import { ref, onMounted, onUnmounted } from 'vue';
 import DialogModal from '@/Components/DialogModal.vue';
-import CreateSubmissionModal from '@/kickpushComponents/CreateSubmissionModal.vue';
-import LoginModal from '@/kickpushComponents/LoginModal.vue';
-import RegisterModal from '@/kickpushComponents/RegisterModal.vue';
+import CreateSubmissionModal from '@/KickpushComponents/CreateSubmissionModal.vue';
+import LoginModal from '@/KickpushComponents/LoginModal.vue';
+import RegisterModal from '@/KickpushComponents/RegisterModal.vue';
 
 const props = defineProps({
     day: Object,
@@ -114,22 +114,21 @@ const toggleRegisterModal = () => {
 <template>
 
     <div class="flex min-h-[100vh]">
-        <div class="lg:w-1/5 min-h-[100vh]">
-            
+
+        <div ref="scrollContainer" class="flex flex-row w-full lg:p-6 p-2  bg-gray-100">
+            <FeedSubmission 
+                v-for="(submission, index) in submissions" :key="submission.id"
+                :submission="submission" 
+                :index="index" 
+                :user="props.user" 
+                :todays-vote-count="props.todaysVoteCount" 
+                @toggleLoginModal="toggleLoginModal" />
         </div>
-        <div ref="scrollContainer" class="mx-auto w-full lg:p-6 p-2 lg:max-w-7xl min-h-[100vh] bg-gray-100">
-            <div v-for="(submission, index) in submissions" :key="submission.id" class="flex">
-                <FeedSubmission 
-                    :submission="submission" 
-                    :index="index" 
-                    :user="props.user" 
-                    :todays-vote-count="props.todaysVoteCount" 
-                    @toggleLoginModal="toggleLoginModal" />
-            </div>
-            <div v-if="loading" class="w-fit mx-auto text-black">Loading more...</div>
-            <div v-if="submissions.length === 0 && !loading" class="w-fit mx-auto text-black mt-10">No submissions yet. Be the first to submit!</div>
-            <div v-else-if="!hasMore && !loading" class="w-fit mx-auto text-black mt-10">The end.</div>
-        </div>
+
+        <!-- <div v-if="loading" class="w-fit mx-auto text-black">Loading more...</div> -->
+        <div v-if="submissions.length === 0 && !loading" class="w-fit mx-auto text-black mt-10">No submissions yet. Be the first to submit!</div>
+        <!-- <div v-else-if="!hasMore && !loading" class="w-fit mx-auto text-black mt-10">The end.</div> -->
+
         <div class="flex lg:w-1/5 min-h-[100vh] absolute w-0 lg:relative">
             <button
                 v-if="$page.props.auth.user"

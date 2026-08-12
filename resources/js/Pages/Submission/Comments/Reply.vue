@@ -6,7 +6,7 @@ import { usePage } from '@inertiajs/vue3';
 import { Link } from '@inertiajs/vue3';
 import LikeComment from '@/Pages/Submission/Comments/LikeComment.vue';
 import CommentForm from '@/Pages/Submission/Comments/CommentForm.vue';
-import MoreActions from '@/kickpushComponents/MoreActions.vue';
+import MoreActions from '@/KickpushComponents/MoreActions.vue';
 
 const $page = usePage();
 

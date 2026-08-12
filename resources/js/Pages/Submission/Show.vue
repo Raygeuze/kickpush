@@ -4,13 +4,13 @@ import { useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { capitalize, ref } from 'vue';
 import CommentFeed from '@/Pages/Submission/Comments/CommentFeed.vue';
-import LoginModal from '@/kickpushComponents/LoginModal.vue';
-import RegisterModal from '@/kickpushComponents/RegisterModal.vue';
-import DayBanner from '@/kickpushComponents/DayBanner.vue';
+import LoginModal from '@/KickpushComponents/LoginModal.vue';
+import RegisterModal from '@/KickpushComponents/RegisterModal.vue';
+import DayBanner from '@/KickpushComponents/DayBanner.vue';
 import { inject } from 'vue';
-import MoreActions from '@/kickpushComponents/MoreActions.vue';
+import MoreActions from '@/KickpushComponents/MoreActions.vue';
 import { toast } from 'vue3-toastify';
-import EditFeedSubmission from '@/kickpushComponents/EditFeedSubmission.vue';
+import EditFeedSubmission from '@/KickpushComponents/EditFeedSubmission.vue';
 
 const $page = usePage();
 
