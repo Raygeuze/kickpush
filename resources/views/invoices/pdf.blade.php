@@ -134,6 +134,32 @@
         @if($invoice->notes)
             <div style="margin-top: 8px;">Invoice notes: {{ $invoice->notes }}</div>
         @endif
+
+        @php
+            $hasPaymentInfo = $user
+                && (
+                    !empty($user->bank_account_name)
+                    || !empty($user->bank_name)
+                    || !empty($user->bsb_code)
+                    || !empty($user->bank_account_number)
+                );
+        @endphp
+
+        @if($hasPaymentInfo)
+            <div style="margin-top: 12px; font-weight: 700; color: #111827;">Payment to be made to</div>
+            @if(!empty($user->bank_account_name))
+                <div>Account Name: {{ $user->bank_account_name }}</div>
+            @endif
+            @if(!empty($user->bank_name))
+                <div>Bank Name: {{ $user->bank_name }}</div>
+            @endif
+            @if(!empty($user->bsb_code))
+                <div>BSB Code: {{ $user->bsb_code }}</div>
+            @endif
+            @if(!empty($user->bank_account_number))
+                <div>Account Number: {{ $user->bank_account_number }}</div>
+            @endif
+        @endif
     </div>
 </div>
 </body>

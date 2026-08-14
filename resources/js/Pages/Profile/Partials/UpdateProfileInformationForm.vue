@@ -20,6 +20,10 @@ const form = useForm({
     hourly_rate: props.user.hourly_rate ?? 0,
     income_tax_rate: props.user.income_tax_rate ?? 0,
     student_loan_tax_rate: props.user.student_loan_tax_rate ?? 0,
+    bank_account_name: props.user.bank_account_name ?? '',
+    bank_name: props.user.bank_name ?? '',
+    bsb_code: props.user.bsb_code ?? '',
+    bank_account_number: props.user.bank_account_number ?? '',
     photo: null,
 });
 
@@ -221,6 +225,60 @@ const clearPhotoFileInput = () => {
                     class="mt-1 block w-full"
                 />
                 <InputError :message="form.errors.student_loan_tax_rate" class="mt-2" />
+            </div>
+
+            <!-- Payment Information -->
+            <div class="col-span-6">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Payment Information</h3>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">These bank details will be used as invoice payment instructions.</p>
+            </div>
+
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="bank_account_name" value="Account Name" />
+                <TextInput
+                    id="bank_account_name"
+                    v-model="form.bank_account_name"
+                    type="text"
+                    class="mt-1 block w-full"
+                    autocomplete="organization"
+                />
+                <InputError :message="form.errors.bank_account_name" class="mt-2" />
+            </div>
+
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="bank_name" value="Bank Name" />
+                <TextInput
+                    id="bank_name"
+                    v-model="form.bank_name"
+                    type="text"
+                    class="mt-1 block w-full"
+                    autocomplete="organization"
+                />
+                <InputError :message="form.errors.bank_name" class="mt-2" />
+            </div>
+
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="bsb_code" value="BSB Code" />
+                <TextInput
+                    id="bsb_code"
+                    v-model="form.bsb_code"
+                    type="text"
+                    class="mt-1 block w-full"
+                    autocomplete="off"
+                />
+                <InputError :message="form.errors.bsb_code" class="mt-2" />
+            </div>
+
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="bank_account_number" value="Account Number" />
+                <TextInput
+                    id="bank_account_number"
+                    v-model="form.bank_account_number"
+                    type="text"
+                    class="mt-1 block w-full"
+                    autocomplete="off"
+                />
+                <InputError :message="form.errors.bank_account_number" class="mt-2" />
             </div>
         </template>
 

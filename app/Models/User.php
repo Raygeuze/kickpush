@@ -42,6 +42,10 @@ class User extends Authenticatable
         'hourly_rate',
         'income_tax_rate',
         'student_loan_tax_rate',
+        'bank_account_name',
+        'bank_name',
+        'bsb_code',
+        'bank_account_number',
     ];
 
     /**

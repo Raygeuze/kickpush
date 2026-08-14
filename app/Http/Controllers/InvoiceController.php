@@ -556,6 +556,58 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function updateSessionDate(Request $request, int $invoiceId, int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+        $this->abortIfInvoiceFinalized($invoice);
+
+        $validated = $request->validate([
+            'session_date' => 'required|date',
+        ]);
+
+        $session = $this->applyActorScopeToSessions(TimerSession::query())
+            ->whereKey($sessionId)
+            ->where('invoice_id', $invoice->id)
+            ->whereNotNull('stopped_at')
+            ->first();
+
+        if (!$session) {
+            return response()->json([
+                'message' => 'Timer session is not assigned to this invoice.',
+            ], 404);
+        }
+
+        $newDate = now()->parse($validated['session_date']);
+
+        $session->started_at = $session->started_at
+            ? $session->started_at->copy()->setDate($newDate->year, $newDate->month, $newDate->day)
+            : $newDate->copy();
+
+        if ($session->stopped_at) {
+            $session->stopped_at = $session->stopped_at->copy()->setDate($newDate->year, $newDate->month, $newDate->day);
+
+            if ($session->stopped_at->lessThan($session->started_at)) {
+                $session->stopped_at = $session->stopped_at->addDay();
+            }
+        }
+
+        $session->duration_seconds = $this->calculateElapsedSeconds($session, $session->stopped_at);
+        $session->save();
+
+        $freshInvoice = $invoice->fresh();
+
+        return response()->json([
+            'message' => 'Session date updated.',
+            'invoice' => $this->formatInvoice($freshInvoice),
+            'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
+            'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
+            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'summary' => $this->invoiceSummary($freshInvoice),
+        ]);
+    }
+
     public function finalize(int $invoiceId): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -921,7 +973,7 @@ class InvoiceController extends Controller
             ->sum('amount'));
         $hourlyRate = (float) (Auth::user()->hourly_rate ?? 0);
         $billableTimeAmount = round(($totalDurationSeconds / 3600) * $hourlyRate, 2);
-        $totalBillableAmount = round($billableTimeAmount + $totalExpensesAmount, 2);
+        $totalBillableAmount = $billableTimeAmount + $totalExpensesAmount;
 
         return [
             'sessions_count' => $sessionsCount,

@@ -24,6 +24,10 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             'hourly_rate' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
             'income_tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'student_loan_tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'bank_account_name' => ['nullable', 'string', 'max:255'],
+            'bank_name' => ['nullable', 'string', 'max:255'],
+            'bsb_code' => ['nullable', 'string', 'max:32'],
+            'bank_account_number' => ['nullable', 'string', 'max:64'],
         ])->validateWithBag('updateProfileInformation');
 
         $hourlyRate = isset($input['hourly_rate']) ? (float) $input['hourly_rate'] : 0;
@@ -44,6 +48,10 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
                 'hourly_rate' => $hourlyRate,
                 'income_tax_rate' => $incomeTaxRate,
                 'student_loan_tax_rate' => $studentLoanTaxRate,
+                'bank_account_name' => $input['bank_account_name'] ?? null,
+                'bank_name' => $input['bank_name'] ?? null,
+                'bsb_code' => $input['bsb_code'] ?? null,
+                'bank_account_number' => $input['bank_account_number'] ?? null,
             ])->save();
         }
     }
@@ -61,6 +69,10 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             'hourly_rate' => isset($input['hourly_rate']) ? (float) $input['hourly_rate'] : 0,
             'income_tax_rate' => isset($input['income_tax_rate']) ? (float) $input['income_tax_rate'] : 0,
             'student_loan_tax_rate' => isset($input['student_loan_tax_rate']) ? (float) $input['student_loan_tax_rate'] : 0,
+            'bank_account_name' => $input['bank_account_name'] ?? null,
+            'bank_name' => $input['bank_name'] ?? null,
+            'bsb_code' => $input['bsb_code'] ?? null,
+            'bank_account_number' => $input['bank_account_number'] ?? null,
             'email_verified_at' => null,
         ])->save();
 

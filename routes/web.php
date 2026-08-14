@@ -33,6 +33,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/invoices/{invoiceId}/timer/stop', [InvoiceController::class, 'stopInlineTimer'])->name('invoices.timer.stop');
     Route::post('/invoices/{invoiceId}/sessions', [InvoiceController::class, 'attachSession'])->name('invoices.sessions.attach');
     Route::post('/invoices/{invoiceId}/sessions/manual', [InvoiceController::class, 'createManualSession'])->name('invoices.sessions.manual');
+    Route::post('/invoices/{invoiceId}/sessions/{sessionId}/date', [InvoiceController::class, 'updateSessionDate'])->name('invoices.sessions.updateDate');
     Route::delete('/invoices/{invoiceId}/sessions/{sessionId}', [InvoiceController::class, 'detachSession'])->name('invoices.sessions.detach');
     Route::post('/invoices/{invoiceId}/expenses', [InvoiceController::class, 'addExpense'])->name('invoices.expenses.add');
     Route::delete('/invoices/{invoiceId}/expenses/{expenseId}', [InvoiceController::class, 'removeExpense'])->name('invoices.expenses.remove');

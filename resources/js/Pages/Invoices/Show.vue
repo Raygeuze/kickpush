@@ -16,10 +16,6 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
-    financialYears: {
-        type: Array,
-        default: () => [],
-    },
     expenses: {
         type: Array,
         default: () => [],
@@ -40,8 +36,6 @@ const assignedSessions = ref(props.assignedSessions);
 const availableSessions = ref(props.availableSessions);
 const expenses = ref(props.expenses);
 const summary = ref(props.summary);
-const financialYears = ref(props.financialYears);
-const selectedFinancialYearId = ref(props.invoice?.financial_year_id ? String(props.invoice.financial_year_id) : '');
 const statusMessage = ref('');
 const isFinalizing = ref(false);
 const isMarkingPaid = ref(false);
@@ -50,8 +44,26 @@ const busyExpenseIds = ref([]);
 const isSubmittingExpense = ref(false);
 const isSubmittingManualSession = ref(false);
 const isInlineTimerLoading = ref(false);
-const isSavingFinancialYear = ref(false);
 const isDeletingInvoice = ref(false);
+const savingSessionDateIds = ref([]);
+const sessionDateDrafts = ref(
+    Object.fromEntries(
+        (props.assignedSessions || []).map((session) => {
+            const value = session?.started_at || session?.created_at;
+
+            if (!value) {
+                return [session.id, ''];
+            }
+
+            const date = new Date(value);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+
+            return [session.id, `${year}-${month}-${day}`];
+        })
+    )
+);
 const isInlineTimerRunning = ref(false);
 const isInlineTimerPaused = ref(false);
 const inlineElapsedSeconds = ref(0);
@@ -141,8 +153,10 @@ function isBusy(sessionId) {
 
 function applyPayload(data) {
     invoice.value = data.invoice;
-    selectedFinancialYearId.value = data.invoice?.financial_year_id ? String(data.invoice.financial_year_id) : '';
     assignedSessions.value = data.assigned_sessions || [];
+    sessionDateDrafts.value = Object.fromEntries(
+        assignedSessions.value.map((session) => [session.id, getSessionDate(session)])
+    );
     availableSessions.value = data.available_sessions || [];
     expenses.value = data.expenses || [];
     summary.value = data.summary || {
@@ -151,27 +165,6 @@ function applyPayload(data) {
         total_expenses_amount: 0,
         total_billable_amount: 0,
     };
-}
-
-async function assignFinancialYear() {
-    if (!selectedFinancialYearId.value || isSavingFinancialYear.value) {
-        return;
-    }
-
-    isSavingFinancialYear.value = true;
-
-    try {
-        const response = await axios.post(`/invoices/${invoice.value.id}/financial-year`, {
-            financial_year_id: Number(selectedFinancialYearId.value),
-        });
-
-        applyPayload(response.data);
-        statusMessage.value = response.data.message || 'Invoice financial year updated.';
-    } catch (error) {
-        statusMessage.value = error?.response?.data?.message || 'Failed to update invoice financial year.';
-    } finally {
-        isSavingFinancialYear.value = false;
-    }
 }
 
 async function deleteInvoice() {
@@ -197,6 +190,52 @@ async function deleteInvoice() {
 
 function isExpenseBusy(expenseId) {
     return busyExpenseIds.value.includes(expenseId);
+}
+
+function isSavingSessionDate(sessionId) {
+    return savingSessionDateIds.value.includes(sessionId);
+}
+
+function getSessionDate(session) {
+    const value = session?.started_at || session?.created_at;
+
+    if (!value) {
+        return '';
+    }
+
+    const date = new Date(value);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+}
+
+function getSessionDateDraft(session) {
+    return sessionDateDrafts.value[session.id] || getSessionDate(session);
+}
+
+async function updateSessionDate(session) {
+    const sessionDate = getSessionDateDraft(session);
+
+    if (!sessionDate || isSavingSessionDate(session.id) || isFinalized.value) {
+        return;
+    }
+
+    savingSessionDateIds.value.push(session.id);
+
+    try {
+        const response = await axios.post(`/invoices/${invoice.value.id}/sessions/${session.id}/date`, {
+            session_date: sessionDate,
+        });
+
+        applyPayload(response.data);
+        statusMessage.value = response.data.message || 'Session date updated.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to update session date.';
+    } finally {
+        savingSessionDateIds.value = savingSessionDateIds.value.filter((id) => id !== session.id);
+    }
 }
 
 async function addSession(sessionId) {
@@ -541,12 +580,31 @@ onBeforeUnmount(() => {
                         </div>
 
                         <div class="flex flex-col items-end gap-3">
-                            <span
-                                class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
-                                :class="isPaid ? 'bg-green-700 text-white' : (isFinalized ? 'bg-gray-800 text-white' : 'bg-emerald-100 text-emerald-700')"
-                            >
-                                {{ isPaid ? 'Paid' : (invoice.status === 'finalized' ? 'Finalized' : 'Draft') }}
-                            </span>
+                            <div class="flex items-center gap-2">
+                                <span
+                                    class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
+                                    :class="isPaid ? 'bg-green-700 text-white' : (isFinalized ? 'bg-gray-800 text-white' : 'bg-emerald-100 text-emerald-700')"
+                                >
+                                    {{ isPaid ? 'Paid' : (invoice.status === 'finalized' ? 'Finalized' : 'Draft') }}
+                                </span>
+
+                                <button
+                                    type="button"
+                                    class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-60"
+                                    :disabled="isDeletingInvoice"
+                                    title="Delete Invoice"
+                                    aria-label="Delete Invoice"
+                                    @click="deleteInvoice"
+                                >
+                                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M3 6h18" />
+                                        <path d="M8 6V4h8v2" />
+                                        <path d="M19 6l-1 14H6L5 6" />
+                                        <path d="M10 11v6" />
+                                        <path d="M14 11v6" />
+                                    </svg>
+                                </button>
+                            </div>
 
                             <button
                                 type="button"
@@ -583,21 +641,6 @@ onBeforeUnmount(() => {
                                 Tax Summary
                             </Link>
 
-                            <Link
-                                href="/"
-                                class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                            >
-                                Back to Timer
-                            </Link>
-
-                            <button
-                                type="button"
-                                class="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition disabled:opacity-60"
-                                :disabled="isDeletingInvoice"
-                                @click="deleteInvoice"
-                            >
-                                {{ isDeletingInvoice ? 'Deleting...' : 'Delete Invoice' }}
-                            </button>
                         </div>
                     </div>
 
@@ -608,27 +651,6 @@ onBeforeUnmount(() => {
                     <p v-if="statusMessage" class="mt-4 text-sm text-gray-700 dark:text-gray-200">
                         {{ statusMessage }}
                     </p>
-
-                    <div class="mt-4 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
-                        <select
-                            v-model="selectedFinancialYearId"
-                            class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                        >
-                            <option value="" disabled>Select financial year</option>
-                            <option v-for="financialYear in financialYears" :key="financialYear.id" :value="String(financialYear.id)">
-                                {{ financialYear.label }}
-                            </option>
-                        </select>
-
-                        <button
-                            type="button"
-                            class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
-                            :disabled="!selectedFinancialYearId || isSavingFinancialYear"
-                            @click="assignFinancialYear"
-                        >
-                            {{ isSavingFinancialYear ? 'Saving...' : 'Update Financial Year' }}
-                        </button>
-                    </div>
 
                     <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -731,6 +753,23 @@ onBeforeUnmount(() => {
                                     <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatDateTime(session.started_at || session.created_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Started: {{ formatDateTime(session.started_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Stopped: {{ formatDateTime(session.stopped_at) }}</p>
+                                    <div class="mt-2 flex items-center gap-2">
+                                        <input
+                                            v-model="sessionDateDrafts[session.id]"
+                                            type="date"
+                                            class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
+                                            :max="'9999-12-31'"
+                                            :disabled="isFinalized || isSavingSessionDate(session.id)"
+                                        />
+                                        <button
+                                            type="button"
+                                            class="rounded-lg bg-indigo-600 px-2 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
+                                            :disabled="isFinalized || isSavingSessionDate(session.id)"
+                                            @click="updateSessionDate(session)"
+                                        >
+                                            {{ isSavingSessionDate(session.id) ? 'Saving...' : 'Save Date' }}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div class="flex items-center gap-3">
