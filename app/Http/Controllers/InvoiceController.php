@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Client;
 use App\Models\Expense;
+use App\Models\FinancialYear;
 use App\Models\Invoice;
 use App\Models\TimerSession;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +21,9 @@ class InvoiceController extends Controller
     public function create(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $userId = (int) Auth::id();
+        $currentFinancialYear = $this->findOrCreateFinancialYearForUser($userId, $this->defaultNzFinancialYearStart());
 
         $validated = $request->validate([
             'invoice_number' => 'nullable|integer|min:1|unique:invoices,invoice_number',
@@ -37,8 +42,9 @@ class InvoiceController extends Controller
             : null;
 
         $invoice = Invoice::create([
-            'user_id' => Auth::id(),
+            'user_id' => $userId,
             'client_id' => $clientId,
+            'financial_year_id' => $currentFinancialYear->id,
             'invoice_number' => $providedInvoiceNumber ?? $this->generateTemporaryInvoiceNumber(),
             'status' => 'draft',
             'notes' => $validated['notes'] ?? null,
@@ -75,9 +81,23 @@ class InvoiceController extends Controller
 
         $validated = $request->validate([
             'client_id' => 'nullable|integer|exists:clients,id',
+            'financial_year_id' => 'nullable|integer|exists:financial_years,id',
         ]);
 
         $selectedClientId = $validated['client_id'] ?? null;
+        $currentFinancialYear = $this->findOrCreateFinancialYearForUser((int) Auth::id(), $this->defaultNzFinancialYearStart());
+        $financialYears = $this->financialYearsForActor();
+        $selectedFinancialYearId = isset($validated['financial_year_id'])
+            ? (int) $validated['financial_year_id']
+            : null;
+
+        if ($selectedFinancialYearId === null) {
+            $selectedFinancialYearId = (int) $currentFinancialYear->id;
+        }
+
+        $selectedFinancialYear = $financialYears->firstWhere('id', $selectedFinancialYearId);
+
+        abort_unless($selectedFinancialYear !== null, 403, 'Selected financial year does not belong to this user.');
 
         if ($selectedClientId) {
             $this->findClientForActorOrFail((int) $selectedClientId);
@@ -89,7 +109,8 @@ class InvoiceController extends Controller
             ->get(['id', 'name', 'email']);
 
         $invoicesQuery = $this->applyActorScope(Invoice::query())
-            ->with('client')
+            ->with(['client', 'financialYear'])
+            ->where('financial_year_id', $selectedFinancialYear->id)
             ->latest('created_at');
 
         if ($selectedClientId) {
@@ -101,6 +122,15 @@ class InvoiceController extends Controller
         return Inertia::render('Invoices/Index', [
             'clients' => $clients,
             'selectedClientId' => $selectedClientId,
+            'financialYears' => $financialYears->map(fn (FinancialYear $financialYear) => [
+                'id' => $financialYear->id,
+                'label' => $financialYear->label,
+                'start_year' => $financialYear->start_year,
+                'end_year' => $financialYear->end_year,
+            ])->values(),
+            'currentFinancialYearId' => $currentFinancialYear->id,
+            'selectedFinancialYearId' => $selectedFinancialYear->id,
+            'selectedFinancialYearLabel' => $selectedFinancialYear->label,
             'invoices' => $invoices->map(fn (Invoice $invoice) => $this->formatInvoice($invoice))->values(),
         ]);
     }
@@ -113,10 +143,81 @@ class InvoiceController extends Controller
 
         return Inertia::render('Invoices/Show', [
             'invoice' => $this->formatInvoice($invoice),
+            'financialYears' => $this->financialYearsForActor()->map(fn (FinancialYear $financialYear) => [
+                'id' => $financialYear->id,
+                'label' => $financialYear->label,
+                'start_year' => $financialYear->start_year,
+                'end_year' => $financialYear->end_year,
+            ])->values(),
             'assignedSessions' => $this->assignedSessionsForInvoice($invoice),
             'availableSessions' => $this->availableConfirmedSessions($invoice),
             'expenses' => $this->invoiceExpenses($invoice),
             'summary' => $this->invoiceSummary($invoice),
+        ]);
+    }
+
+    public function taxSummary(int $invoiceId): Response
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+        $summary = $this->invoiceSummary($invoice);
+
+        return Inertia::render('Invoices/TaxSummary', [
+            'invoice' => $this->formatInvoice($invoice),
+            'summary' => $summary,
+            'taxSummary' => $this->calculateTaxSummary($summary),
+        ]);
+    }
+
+    public function financialYearTaxSummary(Request $request): Response
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $validated = $request->validate([
+            'financial_year_start' => 'nullable|integer|min:2000|max:9999',
+        ]);
+
+        $financialYearStart = isset($validated['financial_year_start'])
+            ? (int) $validated['financial_year_start']
+            : $this->defaultNzFinancialYearStart();
+        $financialYear = $this->findOrCreateFinancialYearForUser((int) Auth::id(), $financialYearStart);
+        $summary = $this->financialYearInvoiceSummary($financialYear);
+
+        return Inertia::render('Invoices/FinancialYearTaxSummary', [
+            'financialYearStart' => $financialYearStart,
+            'financialYearLabel' => $financialYear->label,
+            'periodStart' => $financialYear->start_date->toDateString(),
+            'periodEnd' => $financialYear->end_date->toDateString(),
+            'summary' => $summary,
+            'taxSummary' => $this->calculateTaxSummary($summary),
+        ]);
+    }
+
+    public function assignFinancialYear(Request $request, int $invoiceId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+
+        $validated = $request->validate([
+            'financial_year_id' => 'required|integer|exists:financial_years,id',
+        ]);
+
+        $financialYear = $this->findFinancialYearForActorOrFail((int) $validated['financial_year_id']);
+
+        $invoice->financial_year_id = $financialYear->id;
+        $invoice->save();
+
+        $freshInvoice = $invoice->fresh();
+
+        return response()->json([
+            'message' => 'Invoice financial year updated.',
+            'invoice' => $this->formatInvoice($freshInvoice),
+            'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
+            'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
+            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
 
@@ -186,26 +287,37 @@ class InvoiceController extends Controller
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
-        $runningSession = $this->findAnyRunningSessionForActor();
+        $activeSession = $this->findAnyActiveSessionForActor();
 
-        if (!$runningSession) {
+        if (!$activeSession) {
             return response()->json([
                 'running' => false,
+                'paused' => false,
+                'active' => false,
+                'elapsed_seconds' => 0,
                 'session' => null,
             ]);
         }
 
-        if ((int) $runningSession->invoice_id !== (int) $invoice->id) {
+        if ((int) $activeSession->invoice_id !== (int) $invoice->id) {
+            $otherState = $activeSession->paused_at ? 'paused' : 'running';
+
             return response()->json([
                 'running' => false,
+                'paused' => false,
+                'active' => false,
+                'elapsed_seconds' => 0,
                 'session' => null,
-                'message' => 'A timer is currently running on another invoice. Stop it before starting this one.',
+                'message' => "A timer is currently {$otherState} on another invoice. Stop it before starting this one.",
             ]);
         }
 
         return response()->json([
-            'running' => true,
-            'session' => $runningSession,
+            'running' => $activeSession->paused_at === null,
+            'paused' => $activeSession->paused_at !== null,
+            'active' => true,
+            'elapsed_seconds' => $this->calculateElapsedSeconds($activeSession),
+            'session' => $activeSession,
         ]);
     }
 
@@ -216,18 +328,22 @@ class InvoiceController extends Controller
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $this->abortIfInvoiceFinalized($invoice);
 
-        $runningSession = $this->findAnyRunningSessionForActor();
+        $activeSession = $this->findAnyActiveSessionForActor();
 
-        if ($runningSession) {
-            if ((int) $runningSession->invoice_id === (int) $invoice->id) {
+        if ($activeSession) {
+            if ((int) $activeSession->invoice_id === (int) $invoice->id) {
                 return response()->json([
-                    'message' => 'Timer is already running for this invoice.',
-                    'session' => $runningSession,
-                ]);
+                    'message' => $activeSession->paused_at
+                        ? 'Timer is paused for this invoice. Resume it to continue.'
+                        : 'Timer is already running for this invoice.',
+                    'session' => $activeSession,
+                ], 409);
             }
 
+            $otherState = $activeSession->paused_at ? 'paused' : 'running';
+
             return response()->json([
-                'message' => 'A timer is currently running on another invoice. Stop it before starting this one.',
+                'message' => "A timer is currently {$otherState} on another invoice. Stop it before starting this one.",
             ], 422);
         }
 
@@ -235,12 +351,104 @@ class InvoiceController extends Controller
             'user_id' => Auth::id(),
             'invoice_id' => $invoice->id,
             'started_at' => now(),
+            'accumulated_seconds' => 0,
         ]);
 
         return response()->json([
             'message' => 'Timer started for this invoice.',
             'session' => $session,
         ], 201);
+    }
+
+    public function pauseInlineTimer(int $invoiceId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+        $this->abortIfInvoiceFinalized($invoice);
+
+        $session = $this->applyActorScopeToSessions(TimerSession::query())
+            ->where('invoice_id', $invoice->id)
+            ->whereNull('stopped_at')
+            ->whereNull('paused_at')
+            ->latest('started_at')
+            ->first();
+
+        if (!$session) {
+            $pausedSession = $this->applyActorScopeToSessions(TimerSession::query())
+                ->where('invoice_id', $invoice->id)
+                ->whereNull('stopped_at')
+                ->whereNotNull('paused_at')
+                ->latest('paused_at')
+                ->first();
+
+            if ($pausedSession) {
+                return response()->json([
+                    'message' => 'Timer is already paused for this invoice.',
+                    'session' => $pausedSession,
+                ], 200);
+            }
+
+            return response()->json([
+                'message' => 'No running timer found for this invoice.',
+            ], 404);
+        }
+
+        $pausedAt = now();
+        $elapsedSinceStart = (int) floor($session->started_at->diffInSeconds($pausedAt));
+        $session->accumulated_seconds = (int) ($session->accumulated_seconds ?? 0)
+            + max(0, $elapsedSinceStart);
+        $session->paused_at = $pausedAt;
+        $session->save();
+
+        return response()->json([
+            'message' => 'Timer paused for this invoice.',
+            'session' => $session,
+        ]);
+    }
+
+    public function resumeInlineTimer(int $invoiceId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+        $this->abortIfInvoiceFinalized($invoice);
+
+        $session = $this->applyActorScopeToSessions(TimerSession::query())
+            ->where('invoice_id', $invoice->id)
+            ->whereNull('stopped_at')
+            ->whereNotNull('paused_at')
+            ->latest('paused_at')
+            ->first();
+
+        if (!$session) {
+            $runningSession = $this->applyActorScopeToSessions(TimerSession::query())
+                ->where('invoice_id', $invoice->id)
+                ->whereNull('stopped_at')
+                ->whereNull('paused_at')
+                ->latest('started_at')
+                ->first();
+
+            if ($runningSession) {
+                return response()->json([
+                    'message' => 'Timer is already running for this invoice.',
+                    'session' => $runningSession,
+                ], 200);
+            }
+
+            return response()->json([
+                'message' => 'No paused timer found for this invoice.',
+            ], 404);
+        }
+
+        $session->started_at = now();
+        $session->paused_at = null;
+        $session->save();
+
+        return response()->json([
+            'message' => 'Timer resumed for this invoice.',
+            'session' => $session,
+        ]);
     }
 
     public function stopInlineTimer(int $invoiceId): JsonResponse
@@ -264,7 +472,8 @@ class InvoiceController extends Controller
 
         $stoppedAt = now();
         $session->stopped_at = $stoppedAt;
-        $session->duration_seconds = $session->started_at->diffInSeconds($stoppedAt);
+        $session->duration_seconds = $this->calculateElapsedSeconds($session, $stoppedAt);
+        $session->paused_at = null;
         $session->save();
 
         $freshInvoice = $invoice->fresh();
@@ -355,13 +564,14 @@ class InvoiceController extends Controller
 
         $stoppedRunningSession = null;
 
-        $runningSession = $this->findAnyRunningSessionForActor();
+        $runningSession = $this->findAnyActiveSessionForActor();
 
         if ($runningSession) {
             $stoppedAt = now();
             $runningSession->invoice_id = $invoice->id;
             $runningSession->stopped_at = $stoppedAt;
-            $runningSession->duration_seconds = $runningSession->started_at->diffInSeconds($stoppedAt);
+            $runningSession->duration_seconds = $this->calculateElapsedSeconds($runningSession, $stoppedAt);
+            $runningSession->paused_at = null;
             $runningSession->save();
 
             $stoppedRunningSession = $runningSession;
@@ -575,7 +785,7 @@ class InvoiceController extends Controller
     private function findInvoiceForActorOrFail(int $invoiceId): Invoice
     {
         $invoice = $this->applyActorScope(Invoice::query())
-            ->with('client')
+            ->with(['client', 'financialYear'])
             ->whereKey($invoiceId)
             ->first();
 
@@ -601,12 +811,53 @@ class InvoiceController extends Controller
         return $client;
     }
 
-    private function findAnyRunningSessionForActor(): ?TimerSession
+    private function findAnyActiveSessionForActor(): ?TimerSession
     {
         return $this->applyActorScopeToSessions(TimerSession::query())
             ->whereNull('stopped_at')
             ->latest('started_at')
             ->first();
+    }
+
+    private function findFinancialYearForActorOrFail(int $financialYearId): FinancialYear
+    {
+        $financialYear = FinancialYear::query()
+            ->where('user_id', Auth::id())
+            ->whereKey($financialYearId)
+            ->first();
+
+        abort_unless($financialYear !== null, 403, 'Financial year does not belong to this user.');
+
+        return $financialYear;
+    }
+
+    private function financialYearsForActor()
+    {
+        $userId = (int) Auth::id();
+        $this->findOrCreateFinancialYearForUser($userId, $this->defaultNzFinancialYearStart());
+
+        return FinancialYear::query()
+            ->where('user_id', $userId)
+            ->orderByDesc('start_year')
+            ->get();
+    }
+
+    private function calculateElapsedSeconds(?TimerSession $session, $at = null): int
+    {
+        if (!$session) {
+            return 0;
+        }
+
+        $referenceTime = $at ?? now();
+        $accumulated = (int) ($session->accumulated_seconds ?? 0);
+
+        if ($session->paused_at !== null) {
+            return $accumulated;
+        }
+
+        $elapsedSinceStart = (int) floor($session->started_at->diffInSeconds($referenceTime));
+
+        return $accumulated + max(0, $elapsedSinceStart);
     }
 
     private function assignedSessionsForInvoice(Invoice $invoice)
@@ -662,14 +913,126 @@ class InvoiceController extends Controller
         ];
     }
 
+    private function calculateTaxSummary(array $summary): array
+    {
+        $user = Auth::user();
+        $grossAmount = (float) ($summary['total_billable_amount'] ?? 0);
+        $incomeTaxRate = $user ? (float) $user->income_tax_rate : 0;
+        $studentLoanTaxRate = $user ? (float) $user->student_loan_tax_rate : 0;
+        $incomeTaxAmount = round($grossAmount * ($incomeTaxRate / 100), 2);
+        $studentLoanTaxAmount = round($grossAmount * ($studentLoanTaxRate / 100), 2);
+        $totalTaxAmount = round($incomeTaxAmount + $studentLoanTaxAmount, 2);
+        $netAmount = round($grossAmount - $totalTaxAmount, 2);
+
+        return [
+            'gross_amount' => $grossAmount,
+            'income_tax_rate' => $incomeTaxRate,
+            'income_tax_amount' => $incomeTaxAmount,
+            'student_loan_tax_rate' => $studentLoanTaxRate,
+            'student_loan_tax_amount' => $studentLoanTaxAmount,
+            'total_tax_amount' => $totalTaxAmount,
+            'net_amount' => $netAmount,
+        ];
+    }
+
+    private function defaultNzFinancialYearStart(): int
+    {
+        $nowNz = CarbonImmutable::now('Pacific/Auckland');
+
+        return $nowNz->month >= 4 ? $nowNz->year : $nowNz->subYear()->year;
+    }
+
+    private function nzFinancialYearPeriod(int $financialYearStart): array
+    {
+        $start = CarbonImmutable::create($financialYearStart, 4, 1, 0, 0, 0, 'Pacific/Auckland');
+        $end = $start->addYear()->subDay();
+
+        return [
+            'start' => $start,
+            'end' => $end,
+            'label' => $financialYearStart . '/' . ($financialYearStart + 1),
+        ];
+    }
+
+    private function financialYearInvoiceSummary(FinancialYear $financialYear): array
+    {
+        $invoices = $this->applyActorScope(Invoice::query())
+            ->where('financial_year_id', $financialYear->id)
+            ->get(['id']);
+
+        $invoiceIds = $invoices->pluck('id')->all();
+
+        if (empty($invoiceIds)) {
+            return [
+                'invoice_count' => 0,
+                'sessions_count' => 0,
+                'total_duration_seconds' => 0,
+                'total_expenses_amount' => 0,
+                'billable_time_amount' => 0,
+                'total_billable_amount' => 0,
+            ];
+        }
+
+        $sessionTotals = $this->applyActorScopeToSessions(TimerSession::query())
+            ->whereIn('invoice_id', $invoiceIds)
+            ->whereNotNull('stopped_at')
+            ->selectRaw('COUNT(*) as sessions_count, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
+            ->first();
+
+        $sessionsCount = $sessionTotals ? (int) $sessionTotals->sessions_count : 0;
+        $totalDurationSeconds = $sessionTotals ? (int) $sessionTotals->total_duration_seconds : 0;
+        $totalExpensesAmount = (float) Expense::query()
+            ->whereIn('invoice_id', $invoiceIds)
+            ->sum('amount');
+        $hourlyRate = (float) (Auth::user()->hourly_rate ?? 0);
+        $billableTimeAmount = round(($totalDurationSeconds / 3600) * $hourlyRate, 2);
+        $totalBillableAmount = round($billableTimeAmount + $totalExpensesAmount, 2);
+
+        return [
+            'invoice_count' => count($invoiceIds),
+            'sessions_count' => $sessionsCount,
+            'total_duration_seconds' => $totalDurationSeconds,
+            'total_expenses_amount' => $totalExpensesAmount,
+            'billable_time_amount' => $billableTimeAmount,
+            'total_billable_amount' => $totalBillableAmount,
+        ];
+    }
+
+    private function findOrCreateFinancialYearForUser(int $userId, int $startYear): FinancialYear
+    {
+        $period = $this->nzFinancialYearPeriod($startYear);
+
+        return FinancialYear::query()->firstOrCreate(
+            [
+                'user_id' => $userId,
+                'start_year' => $startYear,
+            ],
+            [
+                'end_year' => $startYear + 1,
+                'label' => $period['label'],
+                'start_date' => $period['start']->toDateString(),
+                'end_date' => $period['end']->toDateString(),
+            ]
+        );
+    }
+
     private function formatInvoice(Invoice $invoice): array
     {
-        $invoice->loadMissing('client');
+        $invoice->loadMissing(['client', 'financialYear']);
 
         return [
             'id' => $invoice->id,
             'invoice_number' => $invoice->invoice_number,
             'client_id' => $invoice->client_id,
+            'financial_year_id' => $invoice->financial_year_id,
+            'financial_year' => $invoice->financialYear ? [
+                'id' => $invoice->financialYear->id,
+                'label' => $invoice->financialYear->label,
+                'start_year' => $invoice->financialYear->start_year,
+                'end_year' => $invoice->financialYear->end_year,
+                'start_date' => $invoice->financialYear->start_date ? $invoice->financialYear->start_date->toDateString() : null,
+                'end_date' => $invoice->financialYear->end_date ? $invoice->financialYear->end_date->toDateString() : null,
+            ] : null,
             'client' => $invoice->client ? [
                 'id' => $invoice->client->id,
                 'name' => $invoice->client->name,

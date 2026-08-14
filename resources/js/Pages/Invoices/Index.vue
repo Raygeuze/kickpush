@@ -12,6 +12,22 @@ const props = defineProps({
         type: [Number, String, null],
         default: null,
     },
+    financialYears: {
+        type: Array,
+        default: () => [],
+    },
+    selectedFinancialYearId: {
+        type: Number,
+        required: true,
+    },
+    currentFinancialYearId: {
+        type: Number,
+        required: true,
+    },
+    selectedFinancialYearLabel: {
+        type: String,
+        required: true,
+    },
     invoices: {
         type: Array,
         default: () => [],
@@ -19,8 +35,16 @@ const props = defineProps({
 });
 
 const selectedClientId = ref(props.selectedClientId ? String(props.selectedClientId) : '');
+const selectedFinancialYearId = ref(String(props.selectedFinancialYearId));
 const invoicesList = ref([...props.invoices]);
 const markingPaidIds = ref([]);
+
+const financialYearOptions = computed(() => {
+    return props.financialYears.map((financialYear) => ({
+        value: String(financialYear.id),
+        label: financialYear.label,
+    }));
+});
 
 const selectedClientName = computed(() => {
     if (!selectedClientId.value) {
@@ -35,6 +59,7 @@ const selectedClientName = computed(() => {
 function applyFilter() {
     router.get('/invoices', {
         client_id: selectedClientId.value || undefined,
+        financial_year_id: Number(selectedFinancialYearId.value),
     }, {
         preserveState: true,
         preserveScroll: true,
@@ -43,6 +68,7 @@ function applyFilter() {
 
 function clearFilter() {
     selectedClientId.value = '';
+    selectedFinancialYearId.value = String(props.currentFinancialYearId);
     applyFilter();
 }
 
@@ -101,14 +127,22 @@ async function markPaid(invoiceId) {
                     <div class="flex flex-wrap items-center justify-between gap-3">
                         <div>
                             <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Invoices By Client</h1>
-                            <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">Filter invoices by client and browse newest first.</p>
+                            <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">Filter invoices by client and New Zealand financial year.</p>
                         </div>
-                        <Link href="/" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                            Back to Timer
-                        </Link>
+                        <div class="flex items-center gap-3">
+                            <Link
+                                :href="route('invoices.financialYearTaxSummary')"
+                                class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition"
+                            >
+                                Financial Year Tax Summary
+                            </Link>
+                            <Link href="/" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                                Back to Timer
+                            </Link>
+                        </div>
                     </div>
 
-                    <div class="mt-5 grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                    <div class="mt-5 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-3 items-end">
                         <div>
                             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client</label>
                             <select
@@ -118,6 +152,18 @@ async function markPaid(invoiceId) {
                                 <option value="">All clients</option>
                                 <option v-for="client in clients" :key="client.id" :value="String(client.id)">
                                     {{ client.name }}
+                                </option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Financial Year (NZ)</label>
+                            <select
+                                v-model="selectedFinancialYearId"
+                                class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                            >
+                                <option v-for="financialYear in financialYearOptions" :key="financialYear.value" :value="financialYear.value">
+                                    {{ financialYear.label }}
                                 </option>
                             </select>
                         </div>
@@ -145,6 +191,7 @@ async function markPaid(invoiceId) {
                         <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ selectedClientName }}</h2>
                         <p class="text-sm text-gray-600 dark:text-gray-300">{{ invoicesList.length }} invoice(s)</p>
                     </div>
+                    <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">Financial year: {{ selectedFinancialYearLabel }}</p>
 
                     <p v-if="invoicesList.length === 0" class="mt-4 text-sm text-gray-600 dark:text-gray-300">
                         No invoices found for this filter.
@@ -188,6 +235,13 @@ async function markPaid(invoiceId) {
                                         class="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline"
                                     >
                                         Open Invoice
+                                    </Link>
+
+                                    <Link
+                                        :href="route('invoices.taxSummary', invoice.id)"
+                                        class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                                    >
+                                        Tax Summary
                                     </Link>
                                 </div>
                             </div>

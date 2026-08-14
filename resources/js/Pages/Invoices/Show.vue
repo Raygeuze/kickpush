@@ -16,6 +16,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    financialYears: {
+        type: Array,
+        default: () => [],
+    },
     expenses: {
         type: Array,
         default: () => [],
@@ -36,6 +40,8 @@ const assignedSessions = ref(props.assignedSessions);
 const availableSessions = ref(props.availableSessions);
 const expenses = ref(props.expenses);
 const summary = ref(props.summary);
+const financialYears = ref(props.financialYears);
+const selectedFinancialYearId = ref(props.invoice?.financial_year_id ? String(props.invoice.financial_year_id) : '');
 const statusMessage = ref('');
 const isFinalizing = ref(false);
 const isMarkingPaid = ref(false);
@@ -44,7 +50,9 @@ const busyExpenseIds = ref([]);
 const isSubmittingExpense = ref(false);
 const isSubmittingManualSession = ref(false);
 const isInlineTimerLoading = ref(false);
+const isSavingFinancialYear = ref(false);
 const isInlineTimerRunning = ref(false);
+const isInlineTimerPaused = ref(false);
 const inlineElapsedSeconds = ref(0);
 const inlineActiveSessionId = ref(null);
 const expenseName = ref('');
@@ -66,6 +74,14 @@ let inlineIntervalId = null;
 
 const isFinalized = computed(() => invoice.value?.is_finalized === true);
 const isPaid = computed(() => invoice.value?.status === 'paid');
+const sortedAssignedSessions = computed(() => {
+    return [...assignedSessions.value].sort((a, b) => {
+        const aDate = new Date(a?.started_at || a?.created_at || 0).getTime();
+        const bDate = new Date(b?.started_at || b?.created_at || 0).getTime();
+
+        return aDate - bDate;
+    });
+});
 
 function formatInvoiceId(invoiceId) {
     return `INV${invoiceId}`;
@@ -124,6 +140,7 @@ function isBusy(sessionId) {
 
 function applyPayload(data) {
     invoice.value = data.invoice;
+    selectedFinancialYearId.value = data.invoice?.financial_year_id ? String(data.invoice.financial_year_id) : '';
     assignedSessions.value = data.assigned_sessions || [];
     availableSessions.value = data.available_sessions || [];
     expenses.value = data.expenses || [];
@@ -133,6 +150,27 @@ function applyPayload(data) {
         total_expenses_amount: 0,
         total_billable_amount: 0,
     };
+}
+
+async function assignFinancialYear() {
+    if (!selectedFinancialYearId.value || isSavingFinancialYear.value) {
+        return;
+    }
+
+    isSavingFinancialYear.value = true;
+
+    try {
+        const response = await axios.post(`/invoices/${invoice.value.id}/financial-year`, {
+            financial_year_id: Number(selectedFinancialYearId.value),
+        });
+
+        applyPayload(response.data);
+        statusMessage.value = response.data.message || 'Invoice financial year updated.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to update invoice financial year.';
+    } finally {
+        isSavingFinancialYear.value = false;
+    }
 }
 
 function isExpenseBusy(expenseId) {
@@ -193,16 +231,22 @@ async function loadInlineTimerStatus() {
     try {
         const response = await axios.get(`/invoices/${invoice.value.id}/timer/status`);
 
-        if (response.data.running && response.data.session) {
-            const startedAt = new Date(response.data.session.started_at);
+        if (response.data.active && response.data.session) {
             inlineActiveSessionId.value = response.data.session.id;
-            inlineElapsedSeconds.value = Math.max(0, Math.floor((new Date() - startedAt) / 1000));
-            isInlineTimerRunning.value = true;
-            startInlineTicker();
+            inlineElapsedSeconds.value = Math.max(0, Number(response.data.elapsed_seconds || 0));
+            isInlineTimerRunning.value = Boolean(response.data.running);
+            isInlineTimerPaused.value = Boolean(response.data.paused);
+
+            if (isInlineTimerRunning.value) {
+                startInlineTicker();
+            } else {
+                stopInlineTicker();
+            }
             return;
         }
 
         isInlineTimerRunning.value = false;
+        isInlineTimerPaused.value = false;
         inlineActiveSessionId.value = null;
         inlineElapsedSeconds.value = 0;
         stopInlineTicker();
@@ -230,10 +274,56 @@ async function startInlineTimer() {
         inlineActiveSessionId.value = session.id;
         inlineElapsedSeconds.value = Math.max(0, Math.floor((new Date() - startedAt) / 1000));
         isInlineTimerRunning.value = true;
+        isInlineTimerPaused.value = false;
         startInlineTicker();
         statusMessage.value = response.data.message || 'Timer started for this invoice.';
     } catch (error) {
         statusMessage.value = error?.response?.data?.message || 'Failed to start inline timer.';
+    } finally {
+        isInlineTimerLoading.value = false;
+    }
+}
+
+async function pauseInlineTimer() {
+    if (isFinalized.value || isInlineTimerLoading.value) {
+        return;
+    }
+
+    isInlineTimerLoading.value = true;
+
+    try {
+        const response = await axios.post(`/invoices/${invoice.value.id}/timer/pause`);
+
+        isInlineTimerRunning.value = false;
+        isInlineTimerPaused.value = true;
+        inlineActiveSessionId.value = response.data.session?.id ?? inlineActiveSessionId.value;
+        inlineElapsedSeconds.value = Math.max(0, Number(response.data.session?.accumulated_seconds || inlineElapsedSeconds.value));
+        stopInlineTicker();
+        statusMessage.value = response.data.message || 'Timer paused for this invoice.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to pause inline timer.';
+    } finally {
+        isInlineTimerLoading.value = false;
+    }
+}
+
+async function resumeInlineTimer() {
+    if (isFinalized.value || isInlineTimerLoading.value) {
+        return;
+    }
+
+    isInlineTimerLoading.value = true;
+
+    try {
+        const response = await axios.post(`/invoices/${invoice.value.id}/timer/resume`);
+
+        isInlineTimerRunning.value = true;
+        isInlineTimerPaused.value = false;
+        inlineActiveSessionId.value = response.data.session?.id ?? inlineActiveSessionId.value;
+        startInlineTicker();
+        statusMessage.value = response.data.message || 'Timer resumed for this invoice.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to resume inline timer.';
     } finally {
         isInlineTimerLoading.value = false;
     }
@@ -251,6 +341,7 @@ async function stopInlineTimer() {
 
         applyPayload(response.data);
         isInlineTimerRunning.value = false;
+        isInlineTimerPaused.value = false;
         inlineActiveSessionId.value = null;
         inlineElapsedSeconds.value = 0;
         stopInlineTicker();
@@ -262,9 +353,14 @@ async function stopInlineTimer() {
     }
 }
 
-function toggleInlineTimer() {
+function runInlinePrimaryAction() {
     if (isInlineTimerRunning.value) {
-        stopInlineTimer();
+        pauseInlineTimer();
+        return;
+    }
+
+    if (isInlineTimerPaused.value) {
+        resumeInlineTimer();
         return;
     }
 
@@ -302,6 +398,7 @@ async function finalizeInvoice() {
 
         applyPayload(response.data);
         isInlineTimerRunning.value = false;
+        isInlineTimerPaused.value = false;
         inlineActiveSessionId.value = null;
         inlineElapsedSeconds.value = 0;
         stopInlineTicker();
@@ -416,6 +513,9 @@ onBeforeUnmount(() => {
                             <p class="text-sm text-gray-600 dark:text-gray-300">
                                 Client: {{ invoice.client ? invoice.client.name : 'Unassigned' }}
                             </p>
+                            <p class="text-sm text-gray-600 dark:text-gray-300">
+                                Financial Year: {{ invoice.financial_year ? invoice.financial_year.label : '-' }}
+                            </p>
                         </div>
 
                         <div class="flex flex-col items-end gap-3">
@@ -455,6 +555,13 @@ onBeforeUnmount(() => {
                             </a>
 
                             <Link
+                                :href="route('invoices.taxSummary', invoice.id)"
+                                class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition"
+                            >
+                                Tax Summary
+                            </Link>
+
+                            <Link
                                 href="/"
                                 class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
                             >
@@ -470,6 +577,27 @@ onBeforeUnmount(() => {
                     <p v-if="statusMessage" class="mt-4 text-sm text-gray-700 dark:text-gray-200">
                         {{ statusMessage }}
                     </p>
+
+                    <div class="mt-4 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
+                        <select
+                            v-model="selectedFinancialYearId"
+                            class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                        >
+                            <option value="" disabled>Select financial year</option>
+                            <option v-for="financialYear in financialYears" :key="financialYear.id" :value="String(financialYear.id)">
+                                {{ financialYear.label }}
+                            </option>
+                        </select>
+
+                        <button
+                            type="button"
+                            class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
+                            :disabled="!selectedFinancialYearId || isSavingFinancialYear"
+                            @click="assignFinancialYear"
+                        >
+                            {{ isSavingFinancialYear ? 'Saving...' : 'Update Financial Year' }}
+                        </button>
+                    </div>
 
                     <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -509,12 +637,26 @@ onBeforeUnmount(() => {
                         <button
                             type="button"
                             class="mt-3 rounded-xl px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
-                            :class="isInlineTimerRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'"
+                            :class="isInlineTimerRunning ? 'bg-amber-600 hover:bg-amber-700' : isInlineTimerPaused ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'"
                             :disabled="isFinalized || isInlineTimerLoading"
-                            @click="toggleInlineTimer"
+                            @click="runInlinePrimaryAction"
                         >
-                            {{ isInlineTimerLoading ? 'Working...' : (isInlineTimerRunning ? 'Stop Inline Timer' : 'Start Inline Timer') }}
+                            {{ isInlineTimerLoading ? 'Working...' : (isInlineTimerRunning ? 'Pause Inline Timer' : isInlineTimerPaused ? 'Resume Inline Timer' : 'Start Inline Timer') }}
                         </button>
+
+                        <button
+                            v-if="isInlineTimerRunning || isInlineTimerPaused"
+                            type="button"
+                            class="mt-3 ml-3 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition disabled:opacity-60"
+                            :disabled="isFinalized || isInlineTimerLoading"
+                            @click="stopInlineTimer"
+                        >
+                            {{ isInlineTimerLoading ? 'Working...' : 'Stop Inline Timer' }}
+                        </button>
+
+                        <p class="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                            {{ isInlineTimerRunning ? 'Recording in progress' : isInlineTimerPaused ? 'Paused' : 'Not recording' }}
+                        </p>
                     </div>
 
                     <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -549,13 +691,13 @@ onBeforeUnmount(() => {
 
                     <div v-else class="mt-4 space-y-3">
                         <div
-                            v-for="session in assignedSessions"
+                            v-for="session in sortedAssignedSessions"
                             :key="session.id"
                             class="rounded-xl border border-gray-200 dark:border-gray-700 p-4"
                         >
                             <div class="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-semibold text-gray-900 dark:text-white">Session #{{ session.id }}</p>
+                                    <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatDateTime(session.started_at || session.created_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Started: {{ formatDateTime(session.started_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Stopped: {{ formatDateTime(session.stopped_at) }}</p>
                                 </div>

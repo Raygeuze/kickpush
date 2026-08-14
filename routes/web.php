@@ -107,10 +107,15 @@ Route::middleware('auth')->group(function () {
     Route::post('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
     Route::get('/invoices/latest', [InvoiceController::class, 'latest'])->name('invoices.latest');
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+    Route::get('/invoices/tax-summary/financial-year', [InvoiceController::class, 'financialYearTaxSummary'])->name('invoices.financialYearTaxSummary');
     Route::get('/invoices/{invoiceId}', [InvoiceController::class, 'show'])->name('invoices.show');
+    Route::get('/invoices/{invoiceId}/tax-summary', [InvoiceController::class, 'taxSummary'])->name('invoices.taxSummary');
     Route::get('/invoices/{invoiceId}/details', [InvoiceController::class, 'details'])->name('invoices.details');
+    Route::post('/invoices/{invoiceId}/financial-year', [InvoiceController::class, 'assignFinancialYear'])->name('invoices.financialYear.assign');
     Route::get('/invoices/{invoiceId}/timer/status', [InvoiceController::class, 'inlineTimerStatus'])->name('invoices.timer.status');
     Route::post('/invoices/{invoiceId}/timer/start', [InvoiceController::class, 'startInlineTimer'])->name('invoices.timer.start');
+    Route::post('/invoices/{invoiceId}/timer/pause', [InvoiceController::class, 'pauseInlineTimer'])->name('invoices.timer.pause');
+    Route::post('/invoices/{invoiceId}/timer/resume', [InvoiceController::class, 'resumeInlineTimer'])->name('invoices.timer.resume');
     Route::post('/invoices/{invoiceId}/timer/stop', [InvoiceController::class, 'stopInlineTimer'])->name('invoices.timer.stop');
     Route::post('/invoices/{invoiceId}/sessions', [InvoiceController::class, 'attachSession'])->name('invoices.sessions.attach');
     Route::post('/invoices/{invoiceId}/sessions/manual', [InvoiceController::class, 'createManualSession'])->name('invoices.sessions.manual');
@@ -124,6 +129,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/timer/status', [TimerSessionController::class, 'status'])->name('timer.status');
     Route::get('/timer/history', [TimerSessionController::class, 'history'])->name('timer.history');
     Route::post('/timer/start', [TimerSessionController::class, 'start'])->name('timer.start');
+    Route::post('/timer/pause', [TimerSessionController::class, 'pause'])->name('timer.pause');
+    Route::post('/timer/resume', [TimerSessionController::class, 'resume'])->name('timer.resume');
     Route::post('/timer/stop', [TimerSessionController::class, 'stop'])->name('timer.stop');
     Route::post('/timer/submit-to-invoice', [TimerSessionController::class, 'submitToInvoice'])->name('timer.submitToInvoice');
 });

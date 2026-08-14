@@ -18,6 +18,8 @@ const form = useForm({
     name: props.user.name,
     email: props.user.email,
     hourly_rate: props.user.hourly_rate ?? 0,
+    income_tax_rate: props.user.income_tax_rate ?? 0,
+    student_loan_tax_rate: props.user.student_loan_tax_rate ?? 0,
     photo: null,
 });
 
@@ -189,6 +191,36 @@ const clearPhotoFileInput = () => {
                     class="mt-1 block w-full"
                 />
                 <InputError :message="form.errors.hourly_rate" class="mt-2" />
+            </div>
+
+            <!-- Income Tax Rate -->
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="income_tax_rate" value="Income Tax Rate (%)" />
+                <TextInput
+                    id="income_tax_rate"
+                    v-model="form.income_tax_rate"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    class="mt-1 block w-full"
+                />
+                <InputError :message="form.errors.income_tax_rate" class="mt-2" />
+            </div>
+
+            <!-- Student Loan Tax Rate -->
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="student_loan_tax_rate" value="Student Loan Tax Rate (%)" />
+                <TextInput
+                    id="student_loan_tax_rate"
+                    v-model="form.student_loan_tax_rate"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    class="mt-1 block w-full"
+                />
+                <InputError :message="form.errors.student_loan_tax_rate" class="mt-2" />
             </div>
         </template>
 

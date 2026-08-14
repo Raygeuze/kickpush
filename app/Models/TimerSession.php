@@ -11,7 +11,9 @@ class TimerSession extends Model
         'user_id',
         'invoice_id',
         'started_at',
+        'paused_at',
         'stopped_at',
+        'accumulated_seconds',
         'duration_seconds',
     ];
 
@@ -19,6 +21,7 @@ class TimerSession extends Model
     {
         return [
             'started_at' => 'datetime',
+            'paused_at' => 'datetime',
             'stopped_at' => 'datetime',
         ];
     }
@@ -35,6 +38,11 @@ class TimerSession extends Model
 
     public function isRunning(): bool
     {
-        return $this->stopped_at === null;
+        return $this->stopped_at === null && $this->paused_at === null;
+    }
+
+    public function isPaused(): bool
+    {
+        return $this->stopped_at === null && $this->paused_at !== null;
     }
 }

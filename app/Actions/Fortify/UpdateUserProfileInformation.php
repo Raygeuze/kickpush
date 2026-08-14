@@ -22,9 +22,13 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             'email' => ['required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
             'photo' => ['nullable', 'mimes:jpg,jpeg,png', 'max:1024'],
             'hourly_rate' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
+            'income_tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'student_loan_tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ])->validateWithBag('updateProfileInformation');
 
         $hourlyRate = isset($input['hourly_rate']) ? (float) $input['hourly_rate'] : 0;
+        $incomeTaxRate = isset($input['income_tax_rate']) ? (float) $input['income_tax_rate'] : 0;
+        $studentLoanTaxRate = isset($input['student_loan_tax_rate']) ? (float) $input['student_loan_tax_rate'] : 0;
 
         if (isset($input['photo'])) {
             $user->updateProfilePhoto($input['photo']);
@@ -38,6 +42,8 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
                 'name' => $input['name'],
                 'email' => $input['email'],
                 'hourly_rate' => $hourlyRate,
+                'income_tax_rate' => $incomeTaxRate,
+                'student_loan_tax_rate' => $studentLoanTaxRate,
             ])->save();
         }
     }
@@ -53,6 +59,8 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             'name' => $input['name'],
             'email' => $input['email'],
             'hourly_rate' => isset($input['hourly_rate']) ? (float) $input['hourly_rate'] : 0,
+            'income_tax_rate' => isset($input['income_tax_rate']) ? (float) $input['income_tax_rate'] : 0,
+            'student_loan_tax_rate' => isset($input['student_loan_tax_rate']) ? (float) $input['student_loan_tax_rate'] : 0,
             'email_verified_at' => null,
         ])->save();
 

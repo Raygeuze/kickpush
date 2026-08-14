@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 const isRunning = ref(false);
+const isPaused = ref(false);
 const elapsedSeconds = ref(0);
 const activeSessionId = ref(null);
 const statusMessage = ref('');
@@ -74,7 +75,7 @@ function formatInvoiceId(invoiceId) {
 }
 
 function getSessionDuration(session) {
-    if (session.id === activeSessionId.value && isRunning.value) {
+    if (session.id === activeSessionId.value && (isRunning.value || isPaused.value)) {
         return formattedElapsed.value;
     }
 
@@ -157,17 +158,29 @@ async function loadStatus() {
     try {
         const response = await axios.get('/timer/status');
 
-        if (response.data.running && response.data.session) {
+        if (response.data.active && response.data.session) {
             const session = response.data.session;
-            const startedAt = new Date(session.started_at);
-            const now = new Date();
 
             activeSessionId.value = session.id;
-            elapsedSeconds.value = Math.max(0, Math.floor((now - startedAt) / 1000));
-            isRunning.value = true;
-            startLocalTicker();
-            statusMessage.value = 'Timer is running.';
+            elapsedSeconds.value = Math.max(0, Number(response.data.elapsed_seconds || 0));
+            isRunning.value = Boolean(response.data.running);
+            isPaused.value = Boolean(response.data.paused);
+
+            if (isRunning.value) {
+                startLocalTicker();
+                statusMessage.value = 'Timer is running.';
+            } else {
+                stopLocalTicker();
+                statusMessage.value = 'Timer is paused.';
+            }
+            return;
         }
+
+        isRunning.value = false;
+        isPaused.value = false;
+        activeSessionId.value = null;
+        elapsedSeconds.value = 0;
+        stopLocalTicker();
     } catch {
         statusMessage.value = 'Could not load timer status.';
     }
@@ -195,12 +208,50 @@ async function startTimer() {
         activeSessionId.value = session.id;
         elapsedSeconds.value = Math.max(0, Math.floor((new Date() - startedAt) / 1000));
         isRunning.value = true;
+        isPaused.value = false;
         startLocalTicker();
         statusMessage.value = response.data.message;
         pendingSessionId.value = null;
         loadHistory();
     } catch (error) {
         statusMessage.value = error?.response?.data?.message || 'Failed to start timer.';
+    } finally {
+        isLoading.value = false;
+    }
+}
+
+async function pauseTimer() {
+    isLoading.value = true;
+
+    try {
+        const response = await axios.post('/timer/pause');
+
+        isRunning.value = false;
+        isPaused.value = true;
+        stopLocalTicker();
+        elapsedSeconds.value = Math.max(0, Number(response.data.session?.accumulated_seconds || elapsedSeconds.value));
+        activeSessionId.value = response.data.session?.id ?? activeSessionId.value;
+        statusMessage.value = response.data.message;
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to pause timer.';
+    } finally {
+        isLoading.value = false;
+    }
+}
+
+async function resumeTimer() {
+    isLoading.value = true;
+
+    try {
+        const response = await axios.post('/timer/resume');
+
+        isRunning.value = true;
+        isPaused.value = false;
+        activeSessionId.value = response.data.session?.id ?? activeSessionId.value;
+        startLocalTicker();
+        statusMessage.value = response.data.message;
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to resume timer.';
     } finally {
         isLoading.value = false;
     }
@@ -213,7 +264,9 @@ async function stopTimer() {
         const response = await axios.post('/timer/stop');
 
         isRunning.value = false;
+        isPaused.value = false;
         stopLocalTicker();
+        elapsedSeconds.value = 0;
         statusMessage.value = `${response.data.message} Duration saved to database.`;
         activeSessionId.value = null;
         pendingSessionId.value = response.data.session?.id ?? null;
@@ -252,9 +305,14 @@ async function submitSessionToInvoice() {
     }
 }
 
-function toggleTimer() {
+function runPrimaryTimerAction() {
     if (isRunning.value) {
-        stopTimer();
+        pauseTimer();
+        return;
+    }
+
+    if (isPaused.value) {
+        resumeTimer();
         return;
     }
 
@@ -394,15 +452,25 @@ onBeforeUnmount(() => {
             <button
                 type="button"
                 class="px-6 py-3 rounded-xl text-white font-semibold transition disabled:opacity-60"
-                :class="isRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'"
+                :class="isRunning ? 'bg-amber-600 hover:bg-amber-700' : isPaused ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'"
                 :disabled="isLoading || !currentInvoice"
-                @click="toggleTimer"
+                @click="runPrimaryTimerAction"
             >
-                {{ isRunning ? 'Stop Timer' : 'Start Timer' }}
+                {{ isRunning ? 'Pause Timer' : isPaused ? 'Resume Timer' : 'Start Timer' }}
+            </button>
+
+            <button
+                v-if="isRunning || isPaused"
+                type="button"
+                class="px-5 py-3 rounded-xl text-white font-semibold bg-red-600 hover:bg-red-700 transition disabled:opacity-60"
+                :disabled="isLoading || !currentInvoice"
+                @click="stopTimer"
+            >
+                Stop Timer
             </button>
 
             <span class="text-sm text-gray-600 dark:text-gray-300">
-                {{ isRunning ? 'Recording in progress' : 'Not recording' }}
+                {{ isRunning ? 'Recording in progress' : isPaused ? 'Paused' : 'Not recording' }}
             </span>
         </div>
 

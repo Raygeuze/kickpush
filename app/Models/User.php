@@ -43,6 +43,8 @@ class User extends Authenticatable
         'stripe_account_id',
         'stripe_customer_id',
         'hourly_rate',
+        'income_tax_rate',
+        'student_loan_tax_rate',
     ];
 
     /**
@@ -77,6 +79,8 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'hourly_rate' => 'decimal:2',
+            'income_tax_rate' => 'decimal:2',
+            'student_loan_tax_rate' => 'decimal:2',
         ];
     }
 

@@ -11,6 +11,7 @@ class Invoice extends Model
     protected $fillable = [
         'user_id',
         'client_id',
+        'financial_year_id',
         'invoice_number',
         'status',
         'issued_at',
@@ -36,6 +37,11 @@ class Invoice extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function financialYear(): BelongsTo
+    {
+        return $this->belongsTo(FinancialYear::class);
     }
 
     public function timerSessions(): HasMany

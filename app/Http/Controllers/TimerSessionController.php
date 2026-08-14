@@ -50,10 +50,15 @@ class TimerSessionController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
-        $session = $this->findRunningSession();
+        $session = $this->findActiveSession();
+        $isRunning = $session !== null && $session->paused_at === null;
+        $isPaused = $session !== null && $session->paused_at !== null;
 
         return response()->json([
-            'running' => $session !== null,
+            'running' => $isRunning,
+            'paused' => $isPaused,
+            'active' => $session !== null,
+            'elapsed_seconds' => $this->calculateElapsedSeconds($session),
             'session' => $session,
         ]);
     }
@@ -62,18 +67,19 @@ class TimerSessionController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
-        $existing = $this->findRunningSession();
+        $existing = $this->findActiveSession();
 
         if ($existing) {
             return response()->json([
-                'message' => 'Timer already running.',
+                'message' => $existing->paused_at ? 'Timer is paused. Resume it to continue.' : 'Timer already running.',
                 'session' => $existing,
-            ], 200);
+            ], 409);
         }
 
         $session = TimerSession::create([
             'user_id' => Auth::id(),
             'started_at' => now(),
+            'accumulated_seconds' => 0,
         ]);
 
         return response()->json([
@@ -82,11 +88,76 @@ class TimerSessionController extends Controller
         ], 201);
     }
 
-    public function stop(Request $request): JsonResponse
+    public function pause(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $session = $this->findRunningSession();
+
+        if (!$session) {
+            $pausedSession = $this->findPausedSession();
+
+            if ($pausedSession) {
+                return response()->json([
+                    'message' => 'Timer is already paused.',
+                    'session' => $pausedSession,
+                ], 200);
+            }
+
+            return response()->json([
+                'message' => 'No running timer found.',
+            ], 404);
+        }
+
+        $pausedAt = now();
+        $elapsedSinceStart = (int) floor($session->started_at->diffInSeconds($pausedAt));
+        $session->accumulated_seconds = (int) ($session->accumulated_seconds ?? 0)
+            + max(0, $elapsedSinceStart);
+        $session->paused_at = $pausedAt;
+        $session->save();
+
+        return response()->json([
+            'message' => 'Timer paused.',
+            'session' => $session,
+        ]);
+    }
+
+    public function resume(Request $request): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $session = $this->findPausedSession();
+
+        if (!$session) {
+            $runningSession = $this->findRunningSession();
+
+            if ($runningSession) {
+                return response()->json([
+                    'message' => 'Timer is already running.',
+                    'session' => $runningSession,
+                ], 200);
+            }
+
+            return response()->json([
+                'message' => 'No paused timer found.',
+            ], 404);
+        }
+
+        $session->started_at = now();
+        $session->paused_at = null;
+        $session->save();
+
+        return response()->json([
+            'message' => 'Timer resumed.',
+            'session' => $session,
+        ]);
+    }
+
+    public function stop(Request $request): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $session = $this->findActiveSession();
 
         if (!$session) {
             return response()->json([
@@ -96,7 +167,8 @@ class TimerSessionController extends Controller
 
         $stoppedAt = now();
         $session->stopped_at = $stoppedAt;
-        $session->duration_seconds = $session->started_at->diffInSeconds($stoppedAt);
+        $session->duration_seconds = $this->calculateElapsedSeconds($session, $stoppedAt);
+        $session->paused_at = null;
         $session->save();
 
         return response()->json([
@@ -157,8 +229,44 @@ class TimerSessionController extends Controller
     {
         return $this->applyActorScope(TimerSession::query())
             ->whereNull('stopped_at')
+            ->whereNull('paused_at')
             ->latest('started_at')
             ->first();
+    }
+
+    private function findPausedSession(): ?TimerSession
+    {
+        return $this->applyActorScope(TimerSession::query())
+            ->whereNull('stopped_at')
+            ->whereNotNull('paused_at')
+            ->latest('paused_at')
+            ->first();
+    }
+
+    private function findActiveSession(): ?TimerSession
+    {
+        return $this->applyActorScope(TimerSession::query())
+            ->whereNull('stopped_at')
+            ->latest('started_at')
+            ->first();
+    }
+
+    private function calculateElapsedSeconds(?TimerSession $session, $at = null): int
+    {
+        if (!$session) {
+            return 0;
+        }
+
+        $referenceTime = $at ?? now();
+        $accumulated = (int) ($session->accumulated_seconds ?? 0);
+
+        if ($session->paused_at !== null) {
+            return $accumulated;
+        }
+
+        $elapsedSinceStart = (int) floor($session->started_at->diffInSeconds($referenceTime));
+
+        return $accumulated + max(0, $elapsedSinceStart);
     }
 
     private function applyActorScope(Builder $query): Builder
