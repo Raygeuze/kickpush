@@ -1,7 +1,7 @@
 <script setup>
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import TimerToggle from '@/KickpushComponents/TimerToggle.vue';
+import TimerToggle from '@/CustomComponents/TimerToggle.vue';
 </script>
 
 <template>

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
 const props = defineProps({
@@ -51,6 +51,7 @@ const isSubmittingExpense = ref(false);
 const isSubmittingManualSession = ref(false);
 const isInlineTimerLoading = ref(false);
 const isSavingFinancialYear = ref(false);
+const isDeletingInvoice = ref(false);
 const isInlineTimerRunning = ref(false);
 const isInlineTimerPaused = ref(false);
 const inlineElapsedSeconds = ref(0);
@@ -79,7 +80,7 @@ const sortedAssignedSessions = computed(() => {
         const aDate = new Date(a?.started_at || a?.created_at || 0).getTime();
         const bDate = new Date(b?.started_at || b?.created_at || 0).getTime();
 
-        return aDate - bDate;
+        return bDate - aDate;
     });
 });
 
@@ -170,6 +171,27 @@ async function assignFinancialYear() {
         statusMessage.value = error?.response?.data?.message || 'Failed to update invoice financial year.';
     } finally {
         isSavingFinancialYear.value = false;
+    }
+}
+
+async function deleteInvoice() {
+    if (isDeletingInvoice.value) {
+        return;
+    }
+
+    if (!window.confirm('Delete this invoice? This cannot be undone.')) {
+        return;
+    }
+
+    isDeletingInvoice.value = true;
+
+    try {
+        await axios.delete(`/invoices/${invoice.value.id}`);
+        router.visit(route('invoices.index'));
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to delete invoice.';
+    } finally {
+        isDeletingInvoice.value = false;
     }
 }
 
@@ -567,6 +589,15 @@ onBeforeUnmount(() => {
                             >
                                 Back to Timer
                             </Link>
+
+                            <button
+                                type="button"
+                                class="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition disabled:opacity-60"
+                                :disabled="isDeletingInvoice"
+                                @click="deleteInvoice"
+                            >
+                                {{ isDeletingInvoice ? 'Deleting...' : 'Delete Invoice' }}
+                            </button>
                         </div>
                     </div>
 

@@ -639,6 +639,25 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function destroy(int $invoiceId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+
+        // Unassign sessions before deleting so historical session data remains intact.
+        $this->applyActorScopeToSessions(TimerSession::query())
+            ->where('invoice_id', $invoice->id)
+            ->update(['invoice_id' => null]);
+
+        Expense::query()->where('invoice_id', $invoice->id)->delete();
+        $invoice->delete();
+
+        return response()->json([
+            'message' => 'Invoice deleted.',
+        ]);
+    }
+
     public function addExpense(Request $request, int $invoiceId): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');

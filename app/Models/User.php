@@ -10,9 +10,6 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Jetstream\HasProfilePhoto;
 use Laravel\Jetstream\HasTeams;
 use Laravel\Sanctum\HasApiTokens;
-use App\Models\Submission;
-use App\Models\VoteCount;
-use App\Models\BehaviourReport;
 use App\Models\TimerSession;
 use App\Models\Invoice;
 use App\Models\Client;
@@ -84,17 +81,6 @@ class User extends Authenticatable
         ];
     }
 
-    public function submissions()
-    {
-        return $this->hasMany(Submission::class)
-            ->orderByDesc('created_at');
-    }
-
-    public function comments()
-    {
-        return $this->hasMany(Comment::class);
-    }
-
     public function timerSessions()
     {
         return $this->hasMany(TimerSession::class)
@@ -113,41 +99,9 @@ class User extends Authenticatable
             ->orderBy('name');
     }
 
-    // vote count per day (user -> voteCount -> day)
-    public function voteCounts()
-    {
-        return $this->hasMany(VoteCount::class);
-    }
-
-    public function todaysVoteCount($dayId = null)
-    {
-        $dayId = $dayId ?? \App\Models\Day::latest()->first()->id;
-        return $this->voteCounts()
-            ->where('day_id', $dayId)
-            ->with('submissions')
-            ->first();
-    }
-
     public function isAdmin()
     {
         return $this->is_admin;
-    }
-
-    // list of submissions flagged, proof of reason for disabling account
-    public function submissionsFlaggedAsReasonForDisabling()
-    {
-        return $this->submissions()->where('flagged_as_reason_for_disabling', true)->get();
-    }
-
-    public function behaviourReports()
-    {
-        return $this->hasMany(BehaviourReport::class, 'reported_user_id')
-            ->orderByDesc('created_at');
-    }
-
-    public function totalBehaviourReports()
-    {
-        return $this->behaviourReports()->count();
     }
 
     public function createStripeAccount()
@@ -171,10 +125,8 @@ class User extends Authenticatable
                 'email' => $this->email,
                 'business_type' => 'individual',
                 'business_profile' => [
-                    'mcc' => '5734', // 5734 - Computer Software Stores
-                    // 'url' => 'dev.kickpush.io',
-                    'product_description' => 'Submissions on the kickpush.io platform.',
-                    
+                    'mcc' => '5734',
+                    'product_description' => 'Invoicing and timer services on the kickpush.io platform.',
                 ],
                 'individual' => [
                     'email' => $this->email,
@@ -201,24 +153,6 @@ class User extends Authenticatable
 
             Log::info('Stripe account created successfully', ['user_id' => $this->id, 'stripe_account_id' => $account->id]);
         }
-    }
-
-    public function daysWon()
-    {
-        return \App\Models\Day::where('first_place_user_id', $this->id)
-            ->get();
-    }
-
-    public function winningDaysUnpaid()
-    {
-        return \App\Models\Day::where('first_place_user_id', $this->id)
-            ->where('transfer_complete', false)
-            ->get();
-    }
-
-    public function totalWinningsAmountAttribute()
-    {
-        return $this->daysWon()->sum('prizePool.total');
     }
 
     public function hasBeenNotifiedToFinishStripeSetup()

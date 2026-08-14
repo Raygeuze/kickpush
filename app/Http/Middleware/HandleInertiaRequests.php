@@ -37,11 +37,7 @@ class HandleInertiaRequests extends Middleware
     {
         return array_merge(parent::share($request), [
             'auth' => [
-                'user' => $request->user() ? [
-                    ...$request->user()->toArray(),
-                    'winningDaysUnpaid' => $request->user()->winningDaysUnpaid(),
-                    
-                ] : null,
+                'user' => $request->user() ? $request->user()->toArray() : null,
             ],
         ]);
     }

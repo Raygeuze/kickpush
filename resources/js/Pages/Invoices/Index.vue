@@ -38,6 +38,7 @@ const selectedClientId = ref(props.selectedClientId ? String(props.selectedClien
 const selectedFinancialYearId = ref(String(props.selectedFinancialYearId));
 const invoicesList = ref([...props.invoices]);
 const markingPaidIds = ref([]);
+const deletingInvoiceIds = ref([]);
 
 const financialYearOptions = computed(() => {
     return props.financialYears.map((financialYear) => ({
@@ -88,6 +89,10 @@ function isMarkingPaid(invoiceId) {
     return markingPaidIds.value.includes(invoiceId);
 }
 
+function isDeletingInvoice(invoiceId) {
+    return deletingInvoiceIds.value.includes(invoiceId);
+}
+
 async function markPaid(invoiceId) {
     if (isMarkingPaid(invoiceId)) {
         return;
@@ -113,6 +118,27 @@ async function markPaid(invoiceId) {
         // Keep page interaction simple here; status badges remain unchanged on failure.
     } finally {
         markingPaidIds.value = markingPaidIds.value.filter((id) => id !== invoiceId);
+    }
+}
+
+async function deleteInvoice(invoiceId) {
+    if (isDeletingInvoice(invoiceId)) {
+        return;
+    }
+
+    if (!window.confirm('Delete this invoice? This cannot be undone.')) {
+        return;
+    }
+
+    deletingInvoiceIds.value.push(invoiceId);
+
+    try {
+        await axios.delete(`/invoices/${invoiceId}`);
+        invoicesList.value = invoicesList.value.filter((invoice) => invoice.id !== invoiceId);
+    } catch {
+        // Keep behavior simple; user can retry deletion.
+    } finally {
+        deletingInvoiceIds.value = deletingInvoiceIds.value.filter((id) => id !== invoiceId);
     }
 }
 </script>
@@ -198,10 +224,11 @@ async function markPaid(invoiceId) {
                     </p>
 
                     <div v-else class="mt-4 space-y-3">
-                        <div
+                        <Link
                             v-for="invoice in invoicesList"
                             :key="invoice.id"
-                            class="rounded-xl border border-gray-200 dark:border-gray-700 p-4"
+                            :href="`/invoices/${invoice.id}`"
+                            class="block rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-400 dark:hover:border-blue-500 transition"
                         >
                             <div class="flex flex-wrap items-start justify-between gap-3">
                                 <div>
@@ -224,28 +251,31 @@ async function markPaid(invoiceId) {
                                         v-if="invoice.status === 'finalized'"
                                         type="button"
                                         class="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 transition disabled:opacity-60"
-                                        :disabled="isMarkingPaid(invoice.id)"
-                                        @click="markPaid(invoice.id)"
+                                        :disabled="isMarkingPaid(invoice.id) || isDeletingInvoice(invoice.id)"
+                                        @click.prevent="markPaid(invoice.id)"
                                     >
                                         {{ isMarkingPaid(invoice.id) ? 'Marking...' : 'Mark As Paid' }}
                                     </button>
 
                                     <Link
-                                        :href="`/invoices/${invoice.id}`"
-                                        class="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline"
-                                    >
-                                        Open Invoice
-                                    </Link>
-
-                                    <Link
                                         :href="route('invoices.taxSummary', invoice.id)"
                                         class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                                        @click.prevent
                                     >
                                         Tax Summary
                                     </Link>
+
+                                    <button
+                                        type="button"
+                                        class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 transition disabled:opacity-60"
+                                        :disabled="isDeletingInvoice(invoice.id)"
+                                        @click.prevent="deleteInvoice(invoice.id)"
+                                    >
+                                        {{ isDeletingInvoice(invoice.id) ? 'Deleting...' : 'Delete Invoice' }}
+                                    </button>
                                 </div>
                             </div>
-                        </div>
+                        </Link>
                     </div>
                 </div>
             </div>
