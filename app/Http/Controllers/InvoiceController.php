@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -109,7 +110,7 @@ class InvoiceController extends Controller
         $clients = Client::query()
             ->where('user_id', Auth::id())
             ->orderBy('name')
-            ->get(['id', 'name', 'email']);
+            ->get(['id', 'name', 'email', 'currency', 'hourly_rate']);
 
         $invoicesQuery = $this->applyActorScope(Invoice::query())
             ->with(['client', 'financialYear'])
@@ -165,11 +166,14 @@ class InvoiceController extends Controller
 
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $summary = $this->invoiceSummary($invoice);
+        $taxSummary = $this->calculateTaxSummary($summary);
+        $currencyConversion = $this->buildWiseCurrencyConversion($invoice, $taxSummary);
 
         return Inertia::render('Invoices/TaxSummary', [
             'invoice' => $this->formatInvoice($invoice),
             'summary' => $summary,
-            'taxSummary' => $this->calculateTaxSummary($summary),
+            'taxSummary' => $taxSummary,
+            'currencyConversion' => $currencyConversion,
         ]);
     }
 
@@ -186,6 +190,8 @@ class InvoiceController extends Controller
             : $this->defaultNzFinancialYearStart();
         $financialYear = $this->findOrCreateFinancialYearForUser((int) Auth::id(), $financialYearStart);
         $summary = $this->financialYearInvoiceSummary($financialYear);
+        $taxSummary = $this->calculateTaxSummary($summary);
+        $convertedTaxSummary = $this->financialYearConvertedTaxSummary($financialYear);
 
         return Inertia::render('Invoices/FinancialYearTaxSummary', [
             'financialYearStart' => $financialYearStart,
@@ -193,7 +199,8 @@ class InvoiceController extends Controller
             'periodStart' => $financialYear->start_date->toDateString(),
             'periodEnd' => $financialYear->end_date->toDateString(),
             'summary' => $summary,
-            'taxSummary' => $this->calculateTaxSummary($summary),
+            'taxSummary' => $taxSummary,
+            'convertedTaxSummary' => $convertedTaxSummary,
         ]);
     }
 
@@ -635,6 +642,7 @@ class InvoiceController extends Controller
         if ($invoice->status !== 'finalized') {
             $invoice->status = 'finalized';
             $invoice->issued_at = $invoice->issued_at ?? now();
+            $this->storeFinalizedWiseConversionRate($invoice);
             $invoice->save();
         }
 
@@ -888,7 +896,7 @@ class InvoiceController extends Controller
     {
         $freshInvoice = $invoice->fresh(['client', 'financialYear']);
         $user = Auth::user();
-        $hourlyRate = $user ? (float) $user->hourly_rate : 0;
+        $hourlyRate = $freshInvoice->client ? (float) $freshInvoice->client->hourly_rate : 0;
         $sessions = $this->assignedSessionsForInvoice($freshInvoice);
         $expenses = $this->invoiceExpenses($freshInvoice);
 
@@ -1051,6 +1059,8 @@ class InvoiceController extends Controller
 
     private function invoiceSummary(Invoice $invoice): array
     {
+        $invoice->loadMissing('client');
+
         $totals = $this->applyActorScopeToSessions(TimerSession::query())
             ->where('invoice_id', $invoice->id)
             ->whereNotNull('stopped_at')
@@ -1062,7 +1072,7 @@ class InvoiceController extends Controller
         $totalExpensesAmount = (float) (Expense::query()
             ->where('invoice_id', $invoice->id)
             ->sum('amount'));
-        $hourlyRate = (float) (Auth::user()->hourly_rate ?? 0);
+        $hourlyRate = $invoice->client ? (float) $invoice->client->hourly_rate : 0;
         $billableTimeAmount = round(($totalDurationSeconds / 3600) * $hourlyRate, 2);
         $totalBillableAmount = $billableTimeAmount + $totalExpensesAmount;
 
@@ -1097,6 +1107,246 @@ class InvoiceController extends Controller
         ];
     }
 
+    private function buildWiseCurrencyConversion(Invoice $invoice, array $taxSummary): array
+    {
+        $actor = Auth::user();
+        $isFinalized = in_array($invoice->status, ['finalized', 'paid'], true);
+        $source = $this->normalizeCurrencyCode($invoice->conversion_source_currency)
+            ?? $this->normalizeCurrencyCode($invoice->client ? (string) $invoice->client->currency : null)
+            ?? 'USD';
+        $target = $this->normalizeCurrencyCode($invoice->conversion_target_currency)
+            ?? $this->currencyForCountry($actor ? (string) $actor->country : null);
+        $grossAmount = (float) ($taxSummary['gross_amount'] ?? 0);
+        $totalTaxAmount = (float) ($taxSummary['total_tax_amount'] ?? 0);
+        $netAmount = (float) ($taxSummary['net_amount'] ?? 0);
+
+        $storedRate = (float) ($invoice->conversion_rate ?? 0);
+        $storedAsOf = $invoice->conversion_rate_fetched_at
+            ? $invoice->conversion_rate_fetched_at->copy()->toIso8601String()
+            : null;
+
+        if ($isFinalized && $storedRate > 0) {
+            return [
+                'available' => true,
+                'is_same_currency' => $source === $target,
+                'is_locked' => true,
+                'source_currency' => $source,
+                'target_currency' => $target,
+                'rate' => $storedRate,
+                'as_of' => $storedAsOf ?? now()->toIso8601String(),
+                'gross_amount_converted' => round($grossAmount * $storedRate, 2),
+                'total_tax_amount_converted' => round($totalTaxAmount * $storedRate, 2),
+                'net_amount_converted' => round($netAmount * $storedRate, 2),
+                'message' => 'Rate locked at invoice finalization.',
+            ];
+        }
+
+        if ($source === $target) {
+            return [
+                'available' => true,
+                'is_same_currency' => true,
+                'is_locked' => $isFinalized,
+                'source_currency' => $source,
+                'target_currency' => $target,
+                'rate' => 1.0,
+                'as_of' => now()->toIso8601String(),
+                'gross_amount_converted' => round($grossAmount, 2),
+                'total_tax_amount_converted' => round($totalTaxAmount, 2),
+                'net_amount_converted' => round($netAmount, 2),
+                'message' => $isFinalized
+                    ? 'No stored finalized rate exists; using same-currency conversion.'
+                    : 'Client currency already matches your country currency.',
+            ];
+        }
+
+        if ($isFinalized) {
+            return [
+                'available' => false,
+                'is_same_currency' => false,
+                'is_locked' => true,
+                'source_currency' => $source,
+                'target_currency' => $target,
+                'message' => 'No finalized conversion rate is stored for this invoice.',
+            ];
+        }
+
+        try {
+            $response = Http::timeout(8)
+                ->acceptJson()
+                ->get('https://wise.com/rates/live', [
+                    'source' => $source,
+                    'target' => $target,
+                    'length' => 1,
+                ]);
+        } catch (Throwable $exception) {
+            return [
+                'available' => false,
+                'is_same_currency' => false,
+                'is_locked' => false,
+                'source_currency' => $source,
+                'target_currency' => $target,
+                'message' => 'Live conversion is temporarily unavailable.',
+            ];
+        }
+
+        if (!$response->ok()) {
+            return [
+                'available' => false,
+                'is_same_currency' => false,
+                'is_locked' => false,
+                'source_currency' => $source,
+                'target_currency' => $target,
+                'message' => 'Live conversion is temporarily unavailable.',
+            ];
+        }
+
+        $payload = $response->json();
+        $rate = is_array($payload) ? (float) ($payload['value'] ?? 0) : 0.0;
+
+        if ($rate <= 0) {
+            return [
+                'available' => false,
+                'is_same_currency' => false,
+                'is_locked' => false,
+                'source_currency' => $source,
+                'target_currency' => $target,
+                'message' => 'Live conversion is temporarily unavailable.',
+            ];
+        }
+
+        $timestampMs = is_array($payload) && isset($payload['time']) ? (int) $payload['time'] : null;
+        $asOf = $timestampMs
+            ? CarbonImmutable::createFromTimestampMs($timestampMs, 'UTC')->toIso8601String()
+            : now()->toIso8601String();
+
+        return [
+            'available' => true,
+            'is_same_currency' => false,
+            'is_locked' => false,
+            'source_currency' => $source,
+            'target_currency' => $target,
+            'rate' => $rate,
+            'as_of' => $asOf,
+            'gross_amount_converted' => round($grossAmount * $rate, 2),
+            'total_tax_amount_converted' => round($totalTaxAmount * $rate, 2),
+            'net_amount_converted' => round($netAmount * $rate, 2),
+            'message' => null,
+        ];
+    }
+
+    private function storeFinalizedWiseConversionRate(Invoice $invoice): void
+    {
+        $actor = Auth::user();
+        $source = $this->normalizeCurrencyCode($invoice->client ? (string) $invoice->client->currency : null) ?? 'USD';
+        $target = $this->currencyForCountry($actor ? (string) $actor->country : null);
+
+        $invoice->conversion_source_currency = $source;
+        $invoice->conversion_target_currency = $target;
+
+        if ($source === $target) {
+            $invoice->conversion_rate = 1.0;
+            $invoice->conversion_rate_fetched_at = now();
+            return;
+        }
+
+        $liveRate = $this->fetchWiseLiveRate($source, $target);
+
+        if ($liveRate === null) {
+            return;
+        }
+
+        $invoice->conversion_rate = (float) $liveRate['rate'];
+        $invoice->conversion_rate_fetched_at = $liveRate['as_of'];
+    }
+
+    private function fetchWiseLiveRate(string $source, string $target): ?array
+    {
+        try {
+            $response = Http::timeout(8)
+                ->acceptJson()
+                ->get('https://wise.com/rates/live', [
+                    'source' => $source,
+                    'target' => $target,
+                    'length' => 1,
+                ]);
+        } catch (Throwable $exception) {
+            return null;
+        }
+
+        if (!$response->ok()) {
+            return null;
+        }
+
+        $payload = $response->json();
+        $rate = is_array($payload) ? (float) ($payload['value'] ?? 0) : 0.0;
+
+        if ($rate <= 0) {
+            return null;
+        }
+
+        $timestampMs = is_array($payload) && isset($payload['time']) ? (int) $payload['time'] : null;
+        $asOf = $timestampMs
+            ? CarbonImmutable::createFromTimestampMs($timestampMs, 'UTC')
+            : now();
+
+        return [
+            'rate' => $rate,
+            'as_of' => $asOf,
+        ];
+    }
+
+    private function normalizeCurrencyCode(?string $currencyCode): ?string
+    {
+        $value = strtoupper(trim((string) $currencyCode));
+
+        if (!preg_match('/^[A-Z]{3}$/', $value)) {
+            return null;
+        }
+
+        return $value;
+    }
+
+    private function currencyForCountry(?string $countryCode): string
+    {
+        $value = strtoupper(trim((string) $countryCode));
+
+        $currencyByCountry = [
+            'NZ' => 'NZD',
+            'AU' => 'AUD',
+            'US' => 'USD',
+            'CA' => 'CAD',
+            'GB' => 'GBP',
+            'JP' => 'JPY',
+            'SG' => 'SGD',
+            'IN' => 'INR',
+            'CH' => 'CHF',
+            'SE' => 'SEK',
+            'NO' => 'NOK',
+            'DK' => 'DKK',
+            'HK' => 'HKD',
+            'ZA' => 'ZAR',
+            'MX' => 'MXN',
+            'BR' => 'BRL',
+            'CN' => 'CNY',
+            'KR' => 'KRW',
+            'AE' => 'AED',
+            'IE' => 'EUR',
+            'FR' => 'EUR',
+            'DE' => 'EUR',
+            'ES' => 'EUR',
+            'IT' => 'EUR',
+            'NL' => 'EUR',
+            'PT' => 'EUR',
+            'BE' => 'EUR',
+            'AT' => 'EUR',
+            'FI' => 'EUR',
+            'GR' => 'EUR',
+            'LU' => 'EUR',
+        ];
+
+        return $currencyByCountry[$value] ?? 'USD';
+    }
+
     private function defaultNzFinancialYearStart(): int
     {
         $nowNz = CarbonImmutable::now('Pacific/Auckland');
@@ -1120,7 +1370,8 @@ class InvoiceController extends Controller
     {
         $invoices = $this->applyActorScope(Invoice::query())
             ->where('financial_year_id', $financialYear->id)
-            ->get(['id']);
+            ->with('client:id,hourly_rate')
+            ->get(['id', 'client_id']);
 
         $invoiceIds = $invoices->pluck('id')->all();
 
@@ -1138,16 +1389,26 @@ class InvoiceController extends Controller
         $sessionTotals = $this->applyActorScopeToSessions(TimerSession::query())
             ->whereIn('invoice_id', $invoiceIds)
             ->whereNotNull('stopped_at')
-            ->selectRaw('COUNT(*) as sessions_count, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
-            ->first();
+            ->selectRaw('invoice_id, COUNT(*) as sessions_count, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
+            ->groupBy('invoice_id')
+            ->get();
 
-        $sessionsCount = $sessionTotals ? (int) $sessionTotals->sessions_count : 0;
-        $totalDurationSeconds = $sessionTotals ? (int) $sessionTotals->total_duration_seconds : 0;
+        $sessionsCount = (int) $sessionTotals->sum('sessions_count');
+        $totalDurationSeconds = (int) $sessionTotals->sum('total_duration_seconds');
         $totalExpensesAmount = (float) Expense::query()
             ->whereIn('invoice_id', $invoiceIds)
             ->sum('amount');
-        $hourlyRate = (float) (Auth::user()->hourly_rate ?? 0);
-        $billableTimeAmount = round(($totalDurationSeconds / 3600) * $hourlyRate, 2);
+
+        $invoiceHourlyRates = $invoices->mapWithKeys(fn (Invoice $invoice) => [
+            $invoice->id => $invoice->client ? (float) $invoice->client->hourly_rate : 0,
+        ]);
+
+        $billableTimeAmount = round((float) $sessionTotals->sum(function ($row) use ($invoiceHourlyRates): float {
+            $rate = (float) ($invoiceHourlyRates[$row->invoice_id] ?? 0);
+            $durationSeconds = (int) $row->total_duration_seconds;
+
+            return ($durationSeconds / 3600) * $rate;
+        }), 2);
         $totalBillableAmount = round($billableTimeAmount + $totalExpensesAmount, 2);
 
         return [
@@ -1157,6 +1418,112 @@ class InvoiceController extends Controller
             'total_expenses_amount' => $totalExpensesAmount,
             'billable_time_amount' => $billableTimeAmount,
             'total_billable_amount' => $totalBillableAmount,
+        ];
+    }
+
+    private function financialYearConvertedTaxSummary(FinancialYear $financialYear): array
+    {
+        $user = Auth::user();
+        $incomeTaxRate = $user ? (float) $user->income_tax_rate : 0;
+        $studentLoanTaxRate = $user ? (float) $user->student_loan_tax_rate : 0;
+
+        $invoices = $this->applyActorScope(Invoice::query())
+            ->where('financial_year_id', $financialYear->id)
+            ->with('client:id,hourly_rate')
+            ->get([
+                'id',
+                'client_id',
+                'conversion_source_currency',
+                'conversion_target_currency',
+                'conversion_rate',
+            ]);
+
+        if ($invoices->isEmpty()) {
+            return [
+                'total_invoices' => 0,
+                'converted_invoices' => 0,
+                'missing_rate_invoices' => 0,
+                'groups' => [],
+            ];
+        }
+
+        $invoiceIds = $invoices->pluck('id')->all();
+
+        $sessionTotals = $this->applyActorScopeToSessions(TimerSession::query())
+            ->whereIn('invoice_id', $invoiceIds)
+            ->whereNotNull('stopped_at')
+            ->selectRaw('invoice_id, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
+            ->groupBy('invoice_id')
+            ->get()
+            ->keyBy('invoice_id');
+
+        $expenseTotals = Expense::query()
+            ->whereIn('invoice_id', $invoiceIds)
+            ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as total_expenses_amount')
+            ->groupBy('invoice_id')
+            ->get()
+            ->keyBy('invoice_id');
+
+        $groups = [];
+        $convertedInvoices = 0;
+        $missingRateInvoices = 0;
+
+        foreach ($invoices as $invoice) {
+            $targetCurrency = $this->normalizeCurrencyCode($invoice->conversion_target_currency);
+            $sourceCurrency = $this->normalizeCurrencyCode($invoice->conversion_source_currency);
+            $conversionRate = (float) ($invoice->conversion_rate ?? 0);
+
+            if ($targetCurrency === null || $sourceCurrency === null || $conversionRate <= 0) {
+                $missingRateInvoices++;
+                continue;
+            }
+
+            $durationSeconds = (int) (($sessionTotals[$invoice->id]->total_duration_seconds ?? 0));
+            $hourlyRate = $invoice->client ? (float) $invoice->client->hourly_rate : 0;
+            $billableTimeAmount = round(($durationSeconds / 3600) * $hourlyRate, 2);
+            $expensesAmount = (float) (($expenseTotals[$invoice->id]->total_expenses_amount ?? 0));
+            $grossAmount = round($billableTimeAmount + $expensesAmount, 2);
+            $incomeTaxAmount = round($grossAmount * ($incomeTaxRate / 100), 2);
+            $studentLoanTaxAmount = round($grossAmount * ($studentLoanTaxRate / 100), 2);
+            $totalTaxAmount = round($incomeTaxAmount + $studentLoanTaxAmount, 2);
+            $netAmount = round($grossAmount - $totalTaxAmount, 2);
+
+            if (!array_key_exists($targetCurrency, $groups)) {
+                $groups[$targetCurrency] = [
+                    'target_currency' => $targetCurrency,
+                    'invoice_count' => 0,
+                    'gross_amount_converted' => 0.0,
+                    'total_tax_amount_converted' => 0.0,
+                    'net_amount_converted' => 0.0,
+                ];
+            }
+
+            $groups[$targetCurrency]['invoice_count'] += 1;
+            $groups[$targetCurrency]['gross_amount_converted'] += round($grossAmount * $conversionRate, 2);
+            $groups[$targetCurrency]['total_tax_amount_converted'] += round($totalTaxAmount * $conversionRate, 2);
+            $groups[$targetCurrency]['net_amount_converted'] += round($netAmount * $conversionRate, 2);
+            $convertedInvoices += 1;
+        }
+
+        $groupRows = collect($groups)
+            ->sortKeys()
+            ->map(function (array $group): array {
+                return [
+                    'target_currency' => $group['target_currency'],
+                    'invoice_count' => (int) $group['invoice_count'],
+                    'gross_amount_converted' => round((float) $group['gross_amount_converted'], 2),
+                    'total_tax_amount_converted' => round((float) $group['total_tax_amount_converted'], 2),
+                    'net_amount_converted' => round((float) $group['net_amount_converted'], 2),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return [
+            'total_invoices' => $invoices->count(),
+            'converted_invoices' => $convertedInvoices,
+            'missing_rate_invoices' => $missingRateInvoices,
+            'groups' => $groupRows,
         ];
     }
 
@@ -1187,6 +1554,10 @@ class InvoiceController extends Controller
             'invoice_number' => $invoice->invoice_number,
             'client_id' => $invoice->client_id,
             'financial_year_id' => $invoice->financial_year_id,
+            'conversion_source_currency' => $invoice->conversion_source_currency,
+            'conversion_target_currency' => $invoice->conversion_target_currency,
+            'conversion_rate' => $invoice->conversion_rate,
+            'conversion_rate_fetched_at' => $invoice->conversion_rate_fetched_at,
             'financial_year' => $invoice->financialYear ? [
                 'id' => $invoice->financialYear->id,
                 'label' => $invoice->financialYear->label,
@@ -1199,6 +1570,8 @@ class InvoiceController extends Controller
                 'id' => $invoice->client->id,
                 'name' => $invoice->client->name,
                 'email' => $invoice->client->email,
+                'currency' => $invoice->client->currency,
+                'hourly_rate' => $invoice->client->hourly_rate,
                 'notes' => $invoice->client->notes,
             ] : null,
             'status' => $invoice->status,

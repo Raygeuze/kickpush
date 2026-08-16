@@ -6,6 +6,7 @@ use App\Models\Client;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -18,7 +19,7 @@ class ClientController extends Controller
         $clients = Client::query()
             ->where('user_id', Auth::id())
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'notes', 'created_at', 'updated_at']);
+            ->get(['id', 'name', 'email', 'currency', 'hourly_rate', 'notes', 'created_at', 'updated_at']);
 
         return Inertia::render('Clients/Index', [
             'clients' => $clients,
@@ -39,7 +40,7 @@ class ClientController extends Controller
         $clients = Client::query()
             ->where('user_id', Auth::id())
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'notes', 'created_at', 'updated_at']);
+            ->get(['id', 'name', 'email', 'currency', 'hourly_rate', 'notes', 'created_at', 'updated_at']);
 
         return response()->json([
             'clients' => $clients,
@@ -53,6 +54,8 @@ class ClientController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255',
+            'currency' => ['required', 'string', 'size:3', 'regex:/^[A-Za-z]{3}$/'],
+            'hourly_rate' => ['required', 'numeric', 'min:0', 'max:999999.99'],
             'notes' => 'nullable|string|max:2000',
         ]);
 
@@ -60,6 +63,8 @@ class ClientController extends Controller
             'user_id' => Auth::id(),
             'name' => $validated['name'],
             'email' => $validated['email'] ?? null,
+            'currency' => Str::upper($validated['currency']),
+            'hourly_rate' => (float) $validated['hourly_rate'],
             'notes' => $validated['notes'] ?? null,
         ]);
 
@@ -87,11 +92,15 @@ class ClientController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255',
+            'currency' => ['required', 'string', 'size:3', 'regex:/^[A-Za-z]{3}$/'],
+            'hourly_rate' => ['required', 'numeric', 'min:0', 'max:999999.99'],
             'notes' => 'nullable|string|max:2000',
         ]);
 
         $client->name = $validated['name'];
         $client->email = $validated['email'] ?? null;
+        $client->currency = Str::upper($validated['currency']);
+        $client->hourly_rate = (float) $validated['hourly_rate'];
         $client->notes = $validated['notes'] ?? null;
         $client->save();
 

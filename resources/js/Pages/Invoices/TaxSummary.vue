@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
@@ -15,6 +16,15 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    currencyConversion: {
+        type: Object,
+        default: () => null,
+    },
+});
+
+const invoiceCurrency = computed(() => {
+    const code = String(props?.invoice?.client?.currency || 'USD').toUpperCase();
+    return /^[A-Z]{3}$/.test(code) ? code : 'USD';
 });
 
 function formatInvoiceId(invoiceId) {
@@ -29,13 +39,20 @@ function formatDateTime(value) {
     return new Date(value).toLocaleDateString();
 }
 
-function formatCurrency(amount) {
+function formatCurrency(amount, currencyCode = invoiceCurrency.value) {
     const value = Number(amount || 0);
+    const code = /^[A-Z]{3}$/.test(String(currencyCode || '').toUpperCase())
+        ? String(currencyCode).toUpperCase()
+        : 'USD';
 
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-    }).format(value);
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: code,
+        }).format(value);
+    } catch (error) {
+        return `${code} ${value.toFixed(2)}`;
+    }
 }
 
 function formatPercent(rate) {
@@ -53,6 +70,12 @@ function formatDuration(totalSeconds) {
     return `${hours.toString().padStart(2, '0')}:${minutes
         .toString()
         .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function formatRate(value) {
+    const rate = Number(value || 0);
+
+    return rate > 0 ? rate.toFixed(6) : '-';
 }
 </script>
 
@@ -111,6 +134,52 @@ function formatDuration(totalSeconds) {
                             </tbody>
                         </table>
                     </div>
+                </div>
+
+                <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Live Currency Conversion (Wise)</h2>
+
+                    <div v-if="currencyConversion && currencyConversion.available" class="mt-5 space-y-4">
+                        <p class="text-sm text-gray-600 dark:text-gray-300">
+                            {{ currencyConversion.source_currency }} to {{ currencyConversion.target_currency }}
+                        </p>
+                        <p class="text-sm text-gray-600 dark:text-gray-300">
+                            1 {{ currencyConversion.source_currency }} = {{ formatRate(currencyConversion.rate) }} {{ currencyConversion.target_currency }}
+                        </p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                            Rate as of {{ formatDateTime(currencyConversion.as_of) }}
+                        </p>
+                        <p v-if="currencyConversion.is_locked" class="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                            This rate is locked from invoice finalization.
+                        </p>
+
+                        <div class="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    <tr>
+                                        <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Gross Invoice Amount</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(currencyConversion.gross_amount_converted, currencyConversion.target_currency) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Tax</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(currencyConversion.total_tax_amount_converted, currencyConversion.target_currency) }}</td>
+                                    </tr>
+                                    <tr class="bg-emerald-50 dark:bg-emerald-900/20">
+                                        <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Estimated Net After Tax</td>
+                                        <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(currencyConversion.net_amount_converted, currencyConversion.target_currency) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p v-if="currencyConversion.message" class="text-xs text-gray-500 dark:text-gray-400">
+                            {{ currencyConversion.message }}
+                        </p>
+                    </div>
+
+                    <p v-else class="mt-5 text-sm text-amber-700 dark:text-amber-300">
+                        {{ currencyConversion?.message || 'Live conversion is temporarily unavailable.' }}
+                    </p>
                 </div>
             </div>
         </div>

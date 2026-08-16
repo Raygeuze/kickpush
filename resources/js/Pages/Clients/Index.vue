@@ -15,6 +15,8 @@ const editingClientId = ref(null);
 const form = ref({
     name: '',
     email: '',
+    currency: 'USD',
+    hourly_rate: 0,
     notes: '',
 });
 const isSaving = ref(false);
@@ -25,6 +27,8 @@ function startEdit(client) {
     form.value = {
         name: client.name || '',
         email: client.email || '',
+        currency: client.currency || 'USD',
+        hourly_rate: Number(client.hourly_rate ?? 0),
         notes: client.notes || '',
     };
     statusMessage.value = '';
@@ -35,8 +39,15 @@ function cancelEdit() {
     form.value = {
         name: '',
         email: '',
+        currency: 'USD',
+        hourly_rate: 0,
         notes: '',
     };
+}
+
+function formatHourlyRate(value) {
+    const amount = Number(value ?? 0);
+    return Number.isFinite(amount) ? amount.toFixed(2) : '0.00';
 }
 
 async function saveEdit(clientId) {
@@ -55,6 +66,8 @@ async function saveEdit(clientId) {
         const response = await axios.put(`/clients/${clientId}`, {
             name: form.value.name,
             email: form.value.email || null,
+            currency: (form.value.currency || '').toUpperCase(),
+            hourly_rate: Number(form.value.hourly_rate || 0),
             notes: form.value.notes || null,
         });
 
@@ -115,6 +128,8 @@ async function saveEdit(clientId) {
                             <div>
                                 <p class="text-base font-semibold text-gray-900 dark:text-white">{{ client.name }}</p>
                                 <p class="text-sm text-gray-600 dark:text-gray-300">{{ client.email || 'No email' }}</p>
+                                <p class="text-sm text-gray-600 dark:text-gray-300">Currency: {{ client.currency || 'USD' }}</p>
+                                <p class="text-sm text-gray-600 dark:text-gray-300">Hourly rate: {{ formatHourlyRate(client.hourly_rate) }}/hr</p>
                                 <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">{{ client.notes || 'No notes' }}</p>
                             </div>
 
@@ -139,6 +154,21 @@ async function saveEdit(clientId) {
                                 type="email"
                                 class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
                                 placeholder="Client email"
+                            />
+                            <input
+                                v-model="form.currency"
+                                type="text"
+                                maxlength="3"
+                                class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm uppercase text-gray-900 dark:text-white"
+                                placeholder="Currency code (e.g. USD)"
+                            />
+                            <input
+                                v-model="form.hourly_rate"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                placeholder="Hourly rate"
                             />
                             <textarea
                                 v-model="form.notes"

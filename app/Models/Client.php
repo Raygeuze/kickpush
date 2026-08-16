@@ -12,8 +12,17 @@ class Client extends Model
         'user_id',
         'name',
         'email',
+        'currency',
+        'hourly_rate',
         'notes',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'hourly_rate' => 'decimal:2',
+        ];
+    }
 
     public function user(): BelongsTo
     {

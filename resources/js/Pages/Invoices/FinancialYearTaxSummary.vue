@@ -27,15 +27,31 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    convertedTaxSummary: {
+        type: Object,
+        default: () => ({
+            total_invoices: 0,
+            converted_invoices: 0,
+            missing_rate_invoices: 0,
+            groups: [],
+        }),
+    },
 });
 
-function formatCurrency(amount) {
+function formatCurrency(amount, currencyCode = 'USD') {
     const value = Number(amount || 0);
+    const code = /^[A-Z]{3}$/.test(String(currencyCode || '').toUpperCase())
+        ? String(currencyCode).toUpperCase()
+        : 'USD';
 
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-    }).format(value);
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: code,
+        }).format(value);
+    } catch (error) {
+        return `${code} ${value.toFixed(2)}`;
+    }
 }
 
 function formatPercent(rate) {
@@ -166,6 +182,56 @@ function openFinancialYear(startYear) {
                             </tbody>
                         </table>
                     </div>
+                </div>
+
+                <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Converted Totals (Stored Invoice Rates)</h2>
+
+                    <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                        Amalgamated from each invoice using the conversion rate recorded on that invoice at finalization time.
+                    </p>
+
+                    <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                            <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Invoices In Year</p>
+                            <p class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">{{ convertedTaxSummary.total_invoices }}</p>
+                        </div>
+                        <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                            <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Converted Invoices</p>
+                            <p class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">{{ convertedTaxSummary.converted_invoices }}</p>
+                        </div>
+                        <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                            <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Missing Stored Rate</p>
+                            <p class="mt-2 text-2xl font-bold text-amber-700 dark:text-amber-300">{{ convertedTaxSummary.missing_rate_invoices }}</p>
+                        </div>
+                    </div>
+
+                    <div v-if="(convertedTaxSummary.groups || []).length > 0" class="mt-5 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                            <thead class="bg-gray-50 dark:bg-gray-800/60">
+                                <tr>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">Target Currency</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Invoices</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Gross Amount</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Total Tax</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Net After Tax</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                <tr v-for="group in convertedTaxSummary.groups" :key="group.target_currency">
+                                    <td class="px-4 py-3 font-semibold text-gray-900 dark:text-white">{{ group.target_currency }}</td>
+                                    <td class="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{{ group.invoice_count }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(group.gross_amount_converted, group.target_currency) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(group.total_tax_amount_converted, group.target_currency) }}</td>
+                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(group.net_amount_converted, group.target_currency) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <p v-else class="mt-5 text-sm text-amber-700 dark:text-amber-300">
+                        No invoices in this financial year have a stored conversion snapshot yet.
+                    </p>
                 </div>
             </div>
         </div>

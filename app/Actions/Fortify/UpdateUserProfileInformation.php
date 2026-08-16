@@ -21,7 +21,6 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
             'photo' => ['nullable', 'mimes:jpg,jpeg,png', 'max:1024'],
-            'hourly_rate' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
             'income_tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'student_loan_tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'bank_account_name' => ['nullable', 'string', 'max:255'],
@@ -30,7 +29,6 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             'bank_account_number' => ['nullable', 'string', 'max:64'],
         ])->validateWithBag('updateProfileInformation');
 
-        $hourlyRate = isset($input['hourly_rate']) ? (float) $input['hourly_rate'] : 0;
         $incomeTaxRate = isset($input['income_tax_rate']) ? (float) $input['income_tax_rate'] : 0;
         $studentLoanTaxRate = isset($input['student_loan_tax_rate']) ? (float) $input['student_loan_tax_rate'] : 0;
 
@@ -45,7 +43,6 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             $user->forceFill([
                 'name' => $input['name'],
                 'email' => $input['email'],
-                'hourly_rate' => $hourlyRate,
                 'income_tax_rate' => $incomeTaxRate,
                 'student_loan_tax_rate' => $studentLoanTaxRate,
                 'bank_account_name' => $input['bank_account_name'] ?? null,
@@ -66,7 +63,6 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
         $user->forceFill([
             'name' => $input['name'],
             'email' => $input['email'],
-            'hourly_rate' => isset($input['hourly_rate']) ? (float) $input['hourly_rate'] : 0,
             'income_tax_rate' => isset($input['income_tax_rate']) ? (float) $input['income_tax_rate'] : 0,
             'student_loan_tax_rate' => isset($input['student_loan_tax_rate']) ? (float) $input['student_loan_tax_rate'] : 0,
             'bank_account_name' => $input['bank_account_name'] ?? null,

@@ -11,6 +11,10 @@ class Invoice extends Model
     protected $fillable = [
         'user_id',
         'client_id',
+        'conversion_source_currency',
+        'conversion_target_currency',
+        'conversion_rate',
+        'conversion_rate_fetched_at',
         'financial_year_id',
         'invoice_number',
         'status',
@@ -26,6 +30,8 @@ class Invoice extends Model
             'issued_at' => 'datetime',
             'due_at' => 'datetime',
             'paid_at' => 'datetime',
+            'conversion_rate' => 'decimal:8',
+            'conversion_rate_fetched_at' => 'datetime',
         ];
     }
 
