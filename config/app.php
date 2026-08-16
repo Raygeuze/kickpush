@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'kickpush'),
+    'name' => env('APP_NAME', 'Kabush - Ray Admin'),
 
     /*
     |--------------------------------------------------------------------------

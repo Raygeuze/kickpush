@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\FinalizedInvoiceMail;
 use App\Models\Client;
 use App\Models\Expense;
 use App\Models\FinancialYear;
@@ -12,9 +13,11 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class InvoiceController extends Controller
 {
@@ -697,6 +700,12 @@ class InvoiceController extends Controller
 
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
 
+        if (in_array($invoice->status, ['finalized', 'paid'], true)) {
+            return response()->json([
+                'message' => 'Finalized or paid invoices cannot be deleted.',
+            ], 422);
+        }
+
         // Unassign sessions before deleting so historical session data remains intact.
         $this->applyActorScopeToSessions(TimerSession::query())
             ->where('invoice_id', $invoice->id)
@@ -779,16 +788,109 @@ class InvoiceController extends Controller
 
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
 
-        if ($invoice->status !== 'finalized') {
+        if (!in_array($invoice->status, ['finalized', 'paid'], true)) {
             return response()->json([
-                'message' => 'Only finalized invoices can be exported as PDF.',
+                'message' => 'Only finalized or paid invoices can be exported as PDF.',
             ], 422);
         }
 
+        if (!app()->bound('dompdf.wrapper')) {
+            return response()->json([
+                'message' => 'PDF engine is not installed. Run composer install/update to include barryvdh/laravel-dompdf.',
+            ], 500);
+        }
+
+        $pdfPayload = $this->buildInvoicePdfPayload($invoice);
+
+        $pdf = app('dompdf.wrapper');
+        $pdf->loadView('invoices.pdf', [
+            'invoice' => $pdfPayload['invoice'],
+            'user' => $pdfPayload['user'],
+            'lineItems' => $pdfPayload['lineItems'],
+            'totalDurationSeconds' => $pdfPayload['totalDurationSeconds'],
+            'hourlyRate' => $pdfPayload['hourlyRate'],
+            'grandTotal' => $pdfPayload['grandTotal'],
+            'generatedAt' => $pdfPayload['generatedAt'],
+            'dueDate' => $pdfPayload['dueDate'],
+        ]);
+
+        return $pdf->download('invoice-INV' . $invoice->id . '.pdf');
+    }
+
+    public function emailClientPdf(int $invoiceId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+
+        if ($invoice->status !== 'finalized') {
+            return response()->json([
+                'message' => 'Only finalized invoices can be emailed to clients.',
+            ], 422);
+        }
+
+        $client = $invoice->client;
+
+        if (!$client || !$client->email || !filter_var($client->email, FILTER_VALIDATE_EMAIL)) {
+            return response()->json([
+                'message' => 'This invoice client does not have a valid email address.',
+            ], 422);
+        }
+
+        if (!app()->bound('dompdf.wrapper')) {
+            return response()->json([
+                'message' => 'PDF engine is not installed. Run composer install/update to include barryvdh/laravel-dompdf.',
+            ], 500);
+        }
+
+        $pdfPayload = $this->buildInvoicePdfPayload($invoice);
+
+        $pdf = app('dompdf.wrapper');
+        $pdf->loadView('invoices.pdf', [
+            'invoice' => $pdfPayload['invoice'],
+            'user' => $pdfPayload['user'],
+            'lineItems' => $pdfPayload['lineItems'],
+            'totalDurationSeconds' => $pdfPayload['totalDurationSeconds'],
+            'hourlyRate' => $pdfPayload['hourlyRate'],
+            'grandTotal' => $pdfPayload['grandTotal'],
+            'generatedAt' => $pdfPayload['generatedAt'],
+            'dueDate' => $pdfPayload['dueDate'],
+        ]);
+
+        $filename = 'invoice-INV' . $invoice->id . '.pdf';
+
+        try {
+            Mail::to($client->email)->send(new FinalizedInvoiceMail(
+                $pdfPayload['invoice'],
+                $client->name,
+                $pdfPayload['grandTotal'],
+                $pdfPayload['dueDate'],
+                $pdf->output(),
+                $filename
+            ));
+        } catch (Throwable $exception) {
+            return response()->json([
+                'message' => 'Failed to send invoice email. Please check mail configuration and try again.',
+            ], 500);
+        }
+
+        return response()->json([
+            'message' => 'Invoice email sent to ' . $client->email . '.',
+        ]);
+    }
+
+    private function applyActorScope(Builder $query): Builder
+    {
+        return $query->where('user_id', Auth::id());
+    }
+
+    private function buildInvoicePdfPayload(Invoice $invoice): array
+    {
+        $freshInvoice = $invoice->fresh(['client', 'financialYear']);
         $user = Auth::user();
         $hourlyRate = $user ? (float) $user->hourly_rate : 0;
-        $sessions = $this->assignedSessionsForInvoice($invoice);
-        $expenses = $this->invoiceExpenses($invoice);
+        $sessions = $this->assignedSessionsForInvoice($freshInvoice);
+        $expenses = $this->invoiceExpenses($freshInvoice);
 
         $totalDurationSeconds = (int) $sessions->sum(function (TimerSession $session) {
             return (int) ($session->duration_seconds ?? 0);
@@ -817,20 +919,16 @@ class InvoiceController extends Controller
         }, 0.0);
 
         $generatedAt = now();
-        $dueDate = $generatedAt->copy()->addDays(14);
+        $dueDate = $freshInvoice->due_at ?: $generatedAt->copy()->addDays(14);
 
-        $invoice->due_at = $dueDate;
-        $invoice->save();
-
-        if (!app()->bound('dompdf.wrapper')) {
-            return response()->json([
-                'message' => 'PDF engine is not installed. Run composer install/update to include barryvdh/laravel-dompdf.',
-            ], 500);
+        if (!$freshInvoice->due_at) {
+            $freshInvoice->due_at = $dueDate;
+            $freshInvoice->save();
+            $freshInvoice = $freshInvoice->fresh(['client', 'financialYear']);
         }
 
-        $pdf = app('dompdf.wrapper');
-        $pdf->loadView('invoices.pdf', [
-            'invoice' => $invoice,
+        return [
+            'invoice' => $freshInvoice,
             'user' => $user,
             'lineItems' => $lineItems,
             'totalDurationSeconds' => $totalDurationSeconds,
@@ -838,14 +936,7 @@ class InvoiceController extends Controller
             'grandTotal' => round($grandTotal, 2),
             'generatedAt' => $generatedAt,
             'dueDate' => $dueDate,
-        ]);
-
-        return $pdf->download('invoice-INV' . $invoice->id . '.pdf');
-    }
-
-    private function applyActorScope(Builder $query): Builder
-    {
-        return $query->where('user_id', Auth::id());
+        ];
     }
 
     private function applyActorScopeToSessions(Builder $query): Builder

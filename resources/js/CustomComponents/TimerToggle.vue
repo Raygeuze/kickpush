@@ -18,6 +18,8 @@ const pendingSessionId = ref(null);
 const isCreatingInvoiceFlowOpen = ref(false);
 
 let intervalId = null;
+let runningBaselineSeconds = 0;
+let runningStartedAtMs = null;
 
 const isInvoiceFinalized = computed(() => currentInvoice.value?.status === 'finalized');
 const shouldShowInvoiceSetup = computed(() => !currentInvoice.value || isCreatingInvoiceFlowOpen.value);
@@ -37,18 +39,36 @@ function startLocalTicker() {
         return;
     }
 
+    syncElapsedFromClock();
     intervalId = setInterval(() => {
-        elapsedSeconds.value += 1;
-    }, 1000);
+        syncElapsedFromClock();
+    }, 250);
 }
 
 function stopLocalTicker() {
     if (!intervalId) {
+        runningStartedAtMs = null;
         return;
     }
 
     clearInterval(intervalId);
     intervalId = null;
+    runningStartedAtMs = null;
+}
+
+function setRunningBaseline(baseSeconds) {
+    runningBaselineSeconds = Math.max(0, Number(baseSeconds || 0));
+    runningStartedAtMs = Date.now();
+    elapsedSeconds.value = runningBaselineSeconds;
+}
+
+function syncElapsedFromClock() {
+    if (runningStartedAtMs === null) {
+        return;
+    }
+
+    const elapsedSinceBaseline = Math.max(0, Math.floor((Date.now() - runningStartedAtMs) / 1000));
+    elapsedSeconds.value = runningBaselineSeconds + elapsedSinceBaseline;
 }
 
 function formatDuration(totalSeconds) {
@@ -124,7 +144,7 @@ async function loadLatestInvoice() {
 
 async function loadClients() {
     try {
-        const response = await axios.get('/clients');
+        const response = await axios.get('/clients/list');
 
         clients.value = response.data.clients || [];
     } catch {
@@ -162,14 +182,15 @@ async function loadStatus() {
             const session = response.data.session;
 
             activeSessionId.value = session.id;
-            elapsedSeconds.value = Math.max(0, Number(response.data.elapsed_seconds || 0));
             isRunning.value = Boolean(response.data.running);
             isPaused.value = Boolean(response.data.paused);
 
             if (isRunning.value) {
+                setRunningBaseline(response.data.elapsed_seconds);
                 startLocalTicker();
                 statusMessage.value = 'Timer is running.';
             } else {
+                elapsedSeconds.value = Math.max(0, Number(response.data.elapsed_seconds || 0));
                 stopLocalTicker();
                 statusMessage.value = 'Timer is paused.';
             }
@@ -202,16 +223,9 @@ async function startTimer() {
     try {
         const response = await axios.post('/timer/start');
 
-        const session = response.data.session;
-        const startedAt = new Date(session.started_at);
-
-        activeSessionId.value = session.id;
-        elapsedSeconds.value = Math.max(0, Math.floor((new Date() - startedAt) / 1000));
-        isRunning.value = true;
-        isPaused.value = false;
-        startLocalTicker();
         statusMessage.value = response.data.message;
         pendingSessionId.value = null;
+        await loadStatus();
         loadHistory();
     } catch (error) {
         statusMessage.value = error?.response?.data?.message || 'Failed to start timer.';
@@ -245,11 +259,8 @@ async function resumeTimer() {
     try {
         const response = await axios.post('/timer/resume');
 
-        isRunning.value = true;
-        isPaused.value = false;
-        activeSessionId.value = response.data.session?.id ?? activeSessionId.value;
-        startLocalTicker();
         statusMessage.value = response.data.message;
+        await loadStatus();
     } catch (error) {
         statusMessage.value = error?.response?.data?.message || 'Failed to resume timer.';
     } finally {

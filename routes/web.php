@@ -14,9 +14,11 @@ Route::get('/', function () {
 })->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/clients', [ClientController::class, 'indexPage'])->name('clients.index');
     Route::get('/clients/create', [ClientController::class, 'createPage'])->name('clients.createPage');
-    Route::get('/clients', [ClientController::class, 'index'])->name('clients.index');
+    Route::get('/clients/list', [ClientController::class, 'list'])->name('clients.list');
     Route::post('/clients/create', [ClientController::class, 'create'])->name('clients.create');
+    Route::put('/clients/{clientId}', [ClientController::class, 'update'])->name('clients.update');
 
     Route::post('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
     Route::get('/invoices/latest', [InvoiceController::class, 'latest'])->name('invoices.latest');
@@ -39,6 +41,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/invoices/{invoiceId}/expenses/{expenseId}', [InvoiceController::class, 'removeExpense'])->name('invoices.expenses.remove');
     Route::post('/invoices/{invoiceId}/finalize', [InvoiceController::class, 'finalize'])->name('invoices.finalize');
     Route::post('/invoices/{invoiceId}/mark-paid', [InvoiceController::class, 'markPaid'])->name('invoices.markPaid');
+    Route::post('/invoices/{invoiceId}/email-client', [InvoiceController::class, 'emailClientPdf'])->name('invoices.emailClientPdf');
     Route::delete('/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
     Route::get('/invoices/{invoiceId}/pdf', [InvoiceController::class, 'downloadPdf'])->name('invoices.pdf');
 
@@ -50,3 +53,5 @@ Route::middleware('auth')->group(function () {
     Route::post('/timer/stop', [TimerSessionController::class, 'stop'])->name('timer.stop');
     Route::post('/timer/submit-to-invoice', [TimerSessionController::class, 'submitToInvoice'])->name('timer.submitToInvoice');
 });
+
+require __DIR__.'/auth.php';

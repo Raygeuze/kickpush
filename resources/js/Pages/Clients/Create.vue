@@ -42,8 +42,8 @@ async function createClient() {
             <div class="mx-auto w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
                 <div class="flex items-center justify-between gap-3">
                     <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Create Client</h1>
-                    <Link href="/" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                        Back to Timer
+                    <Link :href="route('clients.index')" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                        Back to Clients
                     </Link>
                 </div>
 

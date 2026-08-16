@@ -39,6 +39,7 @@ const summary = ref(props.summary);
 const statusMessage = ref('');
 const isFinalizing = ref(false);
 const isMarkingPaid = ref(false);
+const isSendingInvoiceEmail = ref(false);
 const busySessionIds = ref([]);
 const busyExpenseIds = ref([]);
 const isSubmittingExpense = ref(false);
@@ -84,6 +85,8 @@ function getDefaultManualStartedAt() {
 
 const manualStartedAt = ref(getDefaultManualStartedAt());
 let inlineIntervalId = null;
+let inlineRunningBaselineSeconds = 0;
+let inlineRunningStartedAtMs = null;
 
 const isFinalized = computed(() => invoice.value?.is_finalized === true);
 const isPaid = computed(() => invoice.value?.status === 'paid');
@@ -133,18 +136,36 @@ function startInlineTicker() {
         return;
     }
 
+    syncInlineElapsedFromClock();
     inlineIntervalId = setInterval(() => {
-        inlineElapsedSeconds.value += 1;
-    }, 1000);
+        syncInlineElapsedFromClock();
+    }, 250);
 }
 
 function stopInlineTicker() {
     if (!inlineIntervalId) {
+        inlineRunningStartedAtMs = null;
         return;
     }
 
     clearInterval(inlineIntervalId);
     inlineIntervalId = null;
+    inlineRunningStartedAtMs = null;
+}
+
+function setInlineRunningBaseline(baseSeconds) {
+    inlineRunningBaselineSeconds = Math.max(0, Number(baseSeconds || 0));
+    inlineRunningStartedAtMs = Date.now();
+    inlineElapsedSeconds.value = inlineRunningBaselineSeconds;
+}
+
+function syncInlineElapsedFromClock() {
+    if (inlineRunningStartedAtMs === null) {
+        return;
+    }
+
+    const elapsedSinceBaseline = Math.max(0, Math.floor((Date.now() - inlineRunningStartedAtMs) / 1000));
+    inlineElapsedSeconds.value = inlineRunningBaselineSeconds + elapsedSinceBaseline;
 }
 
 function isBusy(sessionId) {
@@ -294,13 +315,14 @@ async function loadInlineTimerStatus() {
 
         if (response.data.active && response.data.session) {
             inlineActiveSessionId.value = response.data.session.id;
-            inlineElapsedSeconds.value = Math.max(0, Number(response.data.elapsed_seconds || 0));
             isInlineTimerRunning.value = Boolean(response.data.running);
             isInlineTimerPaused.value = Boolean(response.data.paused);
 
             if (isInlineTimerRunning.value) {
+                setInlineRunningBaseline(response.data.elapsed_seconds);
                 startInlineTicker();
             } else {
+                inlineElapsedSeconds.value = Math.max(0, Number(response.data.elapsed_seconds || 0));
                 stopInlineTicker();
             }
             return;
@@ -329,14 +351,7 @@ async function startInlineTimer() {
 
     try {
         const response = await axios.post(`/invoices/${invoice.value.id}/timer/start`);
-        const session = response.data.session;
-        const startedAt = new Date(session.started_at);
-
-        inlineActiveSessionId.value = session.id;
-        inlineElapsedSeconds.value = Math.max(0, Math.floor((new Date() - startedAt) / 1000));
-        isInlineTimerRunning.value = true;
-        isInlineTimerPaused.value = false;
-        startInlineTicker();
+        await loadInlineTimerStatus();
         statusMessage.value = response.data.message || 'Timer started for this invoice.';
     } catch (error) {
         statusMessage.value = error?.response?.data?.message || 'Failed to start inline timer.';
@@ -377,11 +392,7 @@ async function resumeInlineTimer() {
 
     try {
         const response = await axios.post(`/invoices/${invoice.value.id}/timer/resume`);
-
-        isInlineTimerRunning.value = true;
-        isInlineTimerPaused.value = false;
-        inlineActiveSessionId.value = response.data.session?.id ?? inlineActiveSessionId.value;
-        startInlineTicker();
+        await loadInlineTimerStatus();
         statusMessage.value = response.data.message || 'Timer resumed for this invoice.';
     } catch (error) {
         statusMessage.value = error?.response?.data?.message || 'Failed to resume inline timer.';
@@ -490,6 +501,24 @@ async function markInvoicePaid() {
     }
 }
 
+async function emailInvoiceToClient() {
+    if (invoice.value?.status !== 'finalized' || isSendingInvoiceEmail.value) {
+        return;
+    }
+
+    isSendingInvoiceEmail.value = true;
+
+    try {
+        const response = await axios.post(`/invoices/${invoice.value.id}/email-client`);
+
+        statusMessage.value = response.data.message || 'Invoice email sent to client.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to send invoice email.';
+    } finally {
+        isSendingInvoiceEmail.value = false;
+    }
+}
+
 async function addExpense() {
     if (isFinalized.value || isSubmittingExpense.value) {
         return;
@@ -589,6 +618,7 @@ onBeforeUnmount(() => {
                                 </span>
 
                                 <button
+                                    v-if="!isFinalized"
                                     type="button"
                                     class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-60"
                                     :disabled="isDeletingInvoice"
@@ -607,6 +637,7 @@ onBeforeUnmount(() => {
                             </div>
 
                             <button
+                                v-if="!isFinalized"
                                 type="button"
                                 class="rounded-xl px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
                                 :class="isFinalized ? 'bg-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'"
@@ -627,12 +658,29 @@ onBeforeUnmount(() => {
                             </button>
 
                             <a
-                                v-if="invoice.status === 'finalized'"
+                                v-if="isFinalized"
                                 :href="`/invoices/${invoice.id}/pdf`"
                                 class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
                             >
                                 Download PDF
                             </a>
+
+                            <button
+                                v-if="invoice.status === 'finalized'"
+                                type="button"
+                                class="rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 transition disabled:opacity-60"
+                                :disabled="isSendingInvoiceEmail || !invoice.client || !invoice.client.email"
+                                @click="emailInvoiceToClient"
+                            >
+                                {{ isSendingInvoiceEmail ? 'Sending Email...' : 'Email PDF To Client' }}
+                            </button>
+
+                            <p
+                                v-if="invoice.status === 'finalized' && (!invoice.client || !invoice.client.email)"
+                                class="text-xs text-amber-700 dark:text-amber-300"
+                            >
+                                Add a valid client email to send this invoice by email.
+                            </p>
 
                             <Link
                                 :href="route('invoices.taxSummary', invoice.id)"

@@ -11,6 +11,20 @@ use Inertia\Response;
 
 class ClientController extends Controller
 {
+    public function indexPage(): Response
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $clients = Client::query()
+            ->where('user_id', Auth::id())
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'notes', 'created_at', 'updated_at']);
+
+        return Inertia::render('Clients/Index', [
+            'clients' => $clients,
+        ]);
+    }
+
     public function createPage(): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -18,14 +32,14 @@ class ClientController extends Controller
         return Inertia::render('Clients/Create');
     }
 
-    public function index(): JsonResponse
+    public function list(): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $clients = Client::query()
             ->where('user_id', Auth::id())
             ->orderBy('name')
-            ->get();
+            ->get(['id', 'name', 'email', 'notes', 'created_at', 'updated_at']);
 
         return response()->json([
             'clients' => $clients,
@@ -53,5 +67,37 @@ class ClientController extends Controller
             'message' => 'Client created.',
             'client' => $client,
         ], 201);
+    }
+
+    public function update(Request $request, int $clientId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $client = Client::query()
+            ->where('user_id', Auth::id())
+            ->whereKey($clientId)
+            ->first();
+
+        if (!$client) {
+            return response()->json([
+                'message' => 'Client not found.',
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'notes' => 'nullable|string|max:2000',
+        ]);
+
+        $client->name = $validated['name'];
+        $client->email = $validated['email'] ?? null;
+        $client->notes = $validated['notes'] ?? null;
+        $client->save();
+
+        return response()->json([
+            'message' => 'Client updated.',
+            'client' => $client,
+        ]);
     }
 }

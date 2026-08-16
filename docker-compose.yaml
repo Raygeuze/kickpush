@@ -95,7 +95,7 @@ services:
       - web
     labels:
       - "traefik.enable=${TRAEFIK_ENABLE}"
-      - "traefik.http.routers.${PROJECT_LABEL}-mailhog.rule=Host(mail.${PROJECT_LABEL}.localhost)"
+      - "traefik.http.routers.${PROJECT_LABEL}-mailhog.rule=Host(`mail.${PROJECT_LABEL}.localhost`)"
       - "traefik.http.routers.${PROJECT_LABEL}-mailhog.entrypoints=${ENTRYPOINTS}"
       - "traefik.http.services.${PROJECT_LABEL}-mailhog.loadbalancer.server.port=8025"
 

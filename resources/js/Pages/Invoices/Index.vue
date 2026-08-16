@@ -266,6 +266,7 @@ async function deleteInvoice(invoiceId) {
                                     </Link>
 
                                     <button
+                                        v-if="!invoice.is_finalized"
                                         type="button"
                                         class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 transition disabled:opacity-60"
                                         :disabled="isDeletingInvoice(invoice.id)"
