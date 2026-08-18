@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
@@ -38,6 +39,12 @@ const props = defineProps({
     },
 });
 
+const taxAndLevyItems = computed(() =>
+    (props?.taxSummary?.additional_tax_items || []).filter((item) =>
+        String(item?.category || '').toLowerCase() !== 'allocation'
+    )
+);
+
 function formatCurrency(amount, currencyCode = 'USD') {
     const value = Number(amount || 0);
     const code = /^[A-Z]{3}$/.test(String(currencyCode || '').toUpperCase())
@@ -58,6 +65,30 @@ function formatPercent(rate) {
     const value = Number(rate || 0);
 
     return `${value.toFixed(2)}%`;
+}
+
+function formatAdditionalTaxValue(item) {
+    if ((item?.value_type || '') === 'percentage') {
+        return formatPercent(item?.value || 0);
+    }
+
+    const code = String(item?.currency || props?.taxSummary?.currency || 'USD').toUpperCase();
+
+    return formatCurrency(item?.value || 0, code);
+}
+
+function formatCategory(value) {
+    const normalized = String(value || '').toLowerCase();
+
+    if (normalized === 'levy') {
+        return 'Levy';
+    }
+
+    if (normalized === 'allocation') {
+        return 'Allocation';
+    }
+
+    return 'Tax';
 }
 
 function formatDate(value) {
@@ -171,13 +202,23 @@ function openFinancialYear(startYear) {
                                     <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Student Loan Tax ({{ formatPercent(taxSummary.student_loan_tax_rate) }})</td>
                                     <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.student_loan_tax_amount) }}</td>
                                 </tr>
+                                <tr
+                                    v-for="(item, index) in taxAndLevyItems"
+                                    :key="`financial-year-additional-tax-item-${item.id ?? 'new'}-${index}`"
+                                >
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">
+                                        {{ item.name }}
+                                        <span class="text-xs text-gray-500 dark:text-gray-400">({{ formatCategory(item.category) }} • {{ formatAdditionalTaxValue(item) }})</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(item.amount) }}</td>
+                                </tr>
                                 <tr>
                                     <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Tax</td>
                                     <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(taxSummary.total_tax_amount) }}</td>
                                 </tr>
                                 <tr class="bg-emerald-50 dark:bg-emerald-900/20">
-                                    <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Estimated Net After Tax</td>
-                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(taxSummary.net_amount) }}</td>
+                                    <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Net Profit After Tax</td>
+                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(taxSummary.net_after_tax_amount) }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -215,6 +256,7 @@ function openFinancialYear(startYear) {
                                     <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Gross Amount</th>
                                     <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Total Tax</th>
                                     <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Net After Tax</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Total After Tax</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
@@ -223,6 +265,7 @@ function openFinancialYear(startYear) {
                                     <td class="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{{ group.invoice_count }}</td>
                                     <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(group.gross_amount_converted, group.target_currency) }}</td>
                                     <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(group.total_tax_amount_converted, group.target_currency) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(group.net_after_tax_amount_converted, group.target_currency) }}</td>
                                     <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(group.net_amount_converted, group.target_currency) }}</td>
                                 </tr>
                             </tbody>

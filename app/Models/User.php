@@ -13,6 +13,7 @@ use Laravel\Sanctum\HasApiTokens;
 use App\Models\TimerSession;
 use App\Models\Invoice;
 use App\Models\Client;
+use App\Models\UserAdditionalTax;
 use Stripe\StripeClient;
 use Illuminate\Support\Facades\Log;
 
@@ -81,6 +82,13 @@ class User extends Authenticatable
             'income_tax_rate' => 'decimal:2',
             'student_loan_tax_rate' => 'decimal:2',
         ];
+    }
+
+    public function additionalTaxes()
+    {
+        return $this->hasMany(UserAdditionalTax::class)
+            ->orderBy('position')
+            ->orderBy('id');
     }
 
     public function timerSessions()

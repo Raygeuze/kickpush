@@ -47,6 +47,8 @@ const isSubmittingManualSession = ref(false);
 const isInlineTimerLoading = ref(false);
 const isDeletingInvoice = ref(false);
 const savingSessionDateIds = ref([]);
+const savingSessionDurationIds = ref([]);
+const editingSessionDurationId = ref(null);
 const sessionDateDrafts = ref(
     Object.fromEntries(
         (props.assignedSessions || []).map((session) => {
@@ -63,6 +65,11 @@ const sessionDateDrafts = ref(
 
             return [session.id, `${year}-${month}-${day}`];
         })
+    )
+);
+const sessionDurationDrafts = ref(
+    Object.fromEntries(
+        (props.assignedSessions || []).map((session) => [session.id, getSessionDurationHms(session)])
     )
 );
 const isInlineTimerRunning = ref(false);
@@ -178,6 +185,9 @@ function applyPayload(data) {
     sessionDateDrafts.value = Object.fromEntries(
         assignedSessions.value.map((session) => [session.id, getSessionDate(session)])
     );
+    sessionDurationDrafts.value = Object.fromEntries(
+        assignedSessions.value.map((session) => [session.id, getSessionDurationHms(session)])
+    );
     availableSessions.value = data.available_sessions || [];
     expenses.value = data.expenses || [];
     summary.value = data.summary || {
@@ -186,6 +196,16 @@ function applyPayload(data) {
         total_expenses_amount: 0,
         total_billable_amount: 0,
     };
+
+    if (editingSessionDurationId.value !== null) {
+        const sessionStillPresent = assignedSessions.value.some(
+            (session) => session.id === editingSessionDurationId.value
+        );
+
+        if (!sessionStillPresent) {
+            editingSessionDurationId.value = null;
+        }
+    }
 }
 
 async function deleteInvoice() {
@@ -217,6 +237,10 @@ function isSavingSessionDate(sessionId) {
     return savingSessionDateIds.value.includes(sessionId);
 }
 
+function isSavingSessionDuration(sessionId) {
+    return savingSessionDurationIds.value.includes(sessionId);
+}
+
 function getSessionDate(session) {
     const value = session?.started_at || session?.created_at;
 
@@ -234,6 +258,60 @@ function getSessionDate(session) {
 
 function getSessionDateDraft(session) {
     return sessionDateDrafts.value[session.id] || getSessionDate(session);
+}
+
+function getSessionDurationHms(session) {
+    return formatDuration(session?.duration_seconds || 0);
+}
+
+function getSessionDurationDraft(session) {
+    const draft = sessionDurationDrafts.value[session.id];
+
+    return draft === undefined ? getSessionDurationHms(session) : draft;
+}
+
+function parseDurationHms(value) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const match = value.trim().match(/^(\d+):([0-5]\d):([0-5]\d)$/);
+
+    if (!match) {
+        return null;
+    }
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    const seconds = Number(match[3]);
+
+    return (hours * 3600) + (minutes * 60) + seconds;
+}
+
+function isEditingSessionDuration(sessionId) {
+    return editingSessionDurationId.value === sessionId;
+}
+
+function startEditingSessionDuration(session) {
+    if (isFinalized.value || isSavingSessionDuration(session.id)) {
+        return;
+    }
+
+    editingSessionDurationId.value = session.id;
+    // Use the exact same formatter as the read-only label so edit mode mirrors displayed elapsed time.
+    sessionDurationDrafts.value[session.id] = getSessionDurationHms(session);
+}
+
+function cancelEditingSessionDuration(session) {
+    if (isSavingSessionDuration(session.id)) {
+        return;
+    }
+
+    if (editingSessionDurationId.value === session.id) {
+        editingSessionDurationId.value = null;
+    }
+
+    sessionDurationDrafts.value[session.id] = getSessionDurationHms(session);
 }
 
 async function updateSessionDate(session) {
@@ -256,6 +334,31 @@ async function updateSessionDate(session) {
         statusMessage.value = error?.response?.data?.message || 'Failed to update session date.';
     } finally {
         savingSessionDateIds.value = savingSessionDateIds.value.filter((id) => id !== session.id);
+    }
+}
+
+async function updateSessionDuration(session) {
+    const durationSeconds = parseDurationHms(getSessionDurationDraft(session));
+
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || isSavingSessionDuration(session.id) || isFinalized.value) {
+        statusMessage.value = 'Use HH:MM:SS (for example 00:22:00).';
+        return;
+    }
+
+    savingSessionDurationIds.value.push(session.id);
+
+    try {
+        const response = await axios.post(`/invoices/${invoice.value.id}/sessions/${session.id}/duration`, {
+            duration_seconds: durationSeconds,
+        });
+
+        applyPayload(response.data);
+        editingSessionDurationId.value = null;
+        statusMessage.value = response.data.message || 'Session duration updated.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to update session duration.';
+    } finally {
+        savingSessionDurationIds.value = savingSessionDurationIds.value.filter((id) => id !== session.id);
     }
 }
 
@@ -821,7 +924,51 @@ onBeforeUnmount(() => {
                                 </div>
 
                                 <div class="flex items-center gap-3">
-                                    <p class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ formatDuration(session.duration_seconds) }}</p>
+                                    <template v-if="!isEditingSessionDuration(session.id)">
+                                        <p class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ formatDuration(session.duration_seconds) }}</p>
+                                        <button
+                                            type="button"
+                                            class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                                            :disabled="isFinalized || isSavingSessionDuration(session.id)"
+                                            title="Edit session duration"
+                                            aria-label="Edit session duration"
+                                            @click="startEditingSessionDuration(session)"
+                                        >
+                                            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M12 20h9" />
+                                                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                            </svg>
+                                        </button>
+                                    </template>
+
+                                    <template v-else>
+                                        <input
+                                            v-model="sessionDurationDrafts[session.id]"
+                                            type="text"
+                                            inputmode="numeric"
+                                            pattern="^\\d+:[0-5]\\d:[0-5]\\d$"
+                                            placeholder="00:00:00"
+                                            class="w-28 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
+                                            :disabled="isFinalized || isSavingSessionDuration(session.id)"
+                                        />
+                                        <button
+                                            type="button"
+                                            class="rounded-lg bg-indigo-600 px-2 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
+                                            :disabled="isFinalized || isSavingSessionDuration(session.id)"
+                                            @click="updateSessionDuration(session)"
+                                        >
+                                            {{ isSavingSessionDuration(session.id) ? 'Saving...' : 'Save' }}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 transition disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                                            :disabled="isSavingSessionDuration(session.id)"
+                                            @click="cancelEditingSessionDuration(session)"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </template>
+
                                     <button
                                         type="button"
                                         class="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-60"

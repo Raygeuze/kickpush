@@ -27,7 +27,8 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'usernameOrEmail' => ['required', 'string'],
+            'usernameOrEmail' => ['nullable', 'string', 'required_without:email'],
+            'email' => ['nullable', 'string', 'required_without:usernameOrEmail'],
             'password' => ['required', 'string'],
         ];
     }
@@ -41,7 +42,7 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        $login = $this->string('usernameOrEmail')->toString();
+        $login = trim((string) ($this->input('usernameOrEmail') ?? $this->input('email') ?? ''));
         $field = filter_var($login, FILTER_VALIDATE_EMAIL) ? 'email' : 'name';
 
         if (! Auth::attempt([$field => $login, 'password' => $this->string('password')->toString()], $this->boolean('remember'))) {
@@ -83,6 +84,8 @@ class LoginRequest extends FormRequest
      */
     public function throttleKey(): string
     {
-        return Str::transliterate(Str::lower($this->string('usernameOrEmail')).'|'.$this->ip());
+        $login = trim((string) ($this->input('usernameOrEmail') ?? $this->input('email') ?? ''));
+
+        return Str::transliterate(Str::lower($login).'|'.$this->ip());
     }
 }

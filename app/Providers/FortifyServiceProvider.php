@@ -32,13 +32,12 @@ class FortifyServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Fortify::authenticateUsing(function (Request $request) {
+            $login = trim((string) ($request->input('usernameOrEmail') ?? $request->input('email') ?? ''));
+            $field = filter_var($login, FILTER_VALIDATE_EMAIL) ? 'email' : 'name';
 
-            $user = User::where('name', $request->input('usernameOrEmail'))
-                        ->orWhere('email', $request->input('usernameOrEmail'))
-                        ->first();
+            $user = User::where($field, $login)->first();
 
-            // cannot use $request->input('password') - not sure why at this stage
-            if ($user && Hash::check($request->password, $user->password)) {
+            if ($user && Hash::check((string) $request->input('password'), $user->password)) {
                 return $user;
             }
 
@@ -52,7 +51,8 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::redirectUserForTwoFactorAuthenticationUsing(RedirectIfTwoFactorAuthenticatable::class);
 
         RateLimiter::for('login', function (Request $request) {
-            $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
+            $loginInput = trim((string) ($request->input(Fortify::username()) ?? $request->input('email') ?? ''));
+            $throttleKey = Str::transliterate(Str::lower($loginInput).'|'.$request->ip());
 
             return Limit::perMinute(5)->by($throttleKey);
         });
