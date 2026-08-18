@@ -35,6 +35,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/invoices/{invoiceId}/timer/stop', [InvoiceController::class, 'stopInlineTimer'])->name('invoices.timer.stop');
     Route::post('/invoices/{invoiceId}/sessions', [InvoiceController::class, 'attachSession'])->name('invoices.sessions.attach');
     Route::post('/invoices/{invoiceId}/sessions/manual', [InvoiceController::class, 'createManualSession'])->name('invoices.sessions.manual');
+    Route::post('/invoices/{invoiceId}/sessions/{sessionId}/resume', [InvoiceController::class, 'resumeStoppedSession'])->name('invoices.sessions.resume');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/date', [InvoiceController::class, 'updateSessionDate'])->name('invoices.sessions.updateDate');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/duration', [InvoiceController::class, 'updateSessionDuration'])->name('invoices.sessions.updateDuration');
     Route::delete('/invoices/{invoiceId}/sessions/{sessionId}', [InvoiceController::class, 'detachSession'])->name('invoices.sessions.detach');

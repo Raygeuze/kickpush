@@ -540,6 +540,55 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function resumeStoppedSession(int $invoiceId, int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+        $this->abortIfInvoiceFinalized($invoice);
+
+        $session = $this->applyActorScopeToSessions(TimerSession::query())
+            ->whereKey($sessionId)
+            ->where('invoice_id', $invoice->id)
+            ->whereNotNull('stopped_at')
+            ->first();
+
+        if (!$session) {
+            return response()->json([
+                'message' => 'Stopped timer session is not assigned to this invoice.',
+            ], 404);
+        }
+
+        $activeSession = $this->findAnyActiveSessionForActor();
+
+        if ($activeSession) {
+            $otherState = $activeSession->paused_at ? 'paused' : 'running';
+
+            return response()->json([
+                'message' => "A timer is currently {$otherState} on another session. Stop it before resuming this one.",
+            ], 422);
+        }
+
+        $session->started_at = now();
+        $session->paused_at = null;
+        $session->stopped_at = null;
+        $session->accumulated_seconds = max(0, (int) ($session->duration_seconds ?? 0));
+        $session->duration_seconds = null;
+        $session->save();
+
+        $freshInvoice = $invoice->fresh();
+
+        return response()->json([
+            'message' => 'Stopped session resumed for this invoice.',
+            'session' => $session,
+            'invoice' => $this->formatInvoice($freshInvoice),
+            'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
+            'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
+            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'summary' => $this->invoiceSummary($freshInvoice),
+        ]);
+    }
+
     public function detachSession(int $invoiceId, int $sessionId): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -1090,7 +1139,6 @@ class InvoiceController extends Controller
     {
         return $this->applyActorScopeToSessions(TimerSession::query())
             ->where('invoice_id', $invoice->id)
-            ->whereNotNull('stopped_at')
             ->orderByDesc('started_at')
             ->get();
     }
