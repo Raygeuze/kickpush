@@ -9,10 +9,27 @@ import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
+const countryOptions = [
+    { code: 'NZ', name: 'New Zealand' },
+    { code: 'AU', name: 'Australia' },
+    { code: 'US', name: 'United States' },
+    { code: 'CA', name: 'Canada' },
+    { code: 'GB', name: 'United Kingdom' },
+    { code: 'IE', name: 'Ireland' },
+    { code: 'SG', name: 'Singapore' },
+    { code: 'IN', name: 'India' },
+    { code: 'JP', name: 'Japan' },
+    { code: 'DE', name: 'Germany' },
+    { code: 'FR', name: 'France' },
+    { code: 'NL', name: 'Netherlands' },
+    { code: 'ZA', name: 'South Africa' },
+];
+
 
 const form = useForm({
     name: '',
     email: '',
+    country: 'NZ',
     password: '',
     password_confirmation: '',
     terms: false,
@@ -64,6 +81,25 @@ const submit = () => {
                             autocomplete="username"
                         />
                         <InputError class="mt-2" :message="form.errors.email" />
+                    </div>
+
+                    <div class="mt-4">
+                        <InputLabel for="country" value="Country" />
+                        <select
+                            id="country"
+                            v-model="form.country"
+                            class="mt-1 block w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500"
+                            required
+                        >
+                            <option
+                                v-for="country in countryOptions"
+                                :key="country.code"
+                                :value="country.code"
+                            >
+                                {{ country.name }}
+                            </option>
+                        </select>
+                        <InputError class="mt-2" :message="form.errors.country" />
                     </div>
 
                     <div class="mt-4">

@@ -47,6 +47,22 @@ const additionalTaxCurrencies = [
     { value: 'AED', label: 'AED' },
 ];
 
+const countryOptions = [
+    { code: 'NZ', name: 'New Zealand' },
+    { code: 'AU', name: 'Australia' },
+    { code: 'US', name: 'United States' },
+    { code: 'CA', name: 'Canada' },
+    { code: 'GB', name: 'United Kingdom' },
+    { code: 'IE', name: 'Ireland' },
+    { code: 'SG', name: 'Singapore' },
+    { code: 'IN', name: 'India' },
+    { code: 'JP', name: 'Japan' },
+    { code: 'DE', name: 'Germany' },
+    { code: 'FR', name: 'France' },
+    { code: 'NL', name: 'Netherlands' },
+    { code: 'ZA', name: 'South Africa' },
+];
+
 function currencyForCountry(countryCode) {
     const value = String(countryCode || '').toUpperCase();
     const map = {
@@ -96,6 +112,7 @@ const form = useForm({
     _method: 'PUT',
     name: props.user.name,
     email: props.user.email,
+    country: props.user.country ?? 'NZ',
     bank_account_name: props.user.bank_account_name ?? '',
     bank_name: props.user.bank_name ?? '',
     bsb_code: props.user.bsb_code ?? '',
@@ -292,6 +309,25 @@ const reindexAdditionalTaxes = () => {
                         A new verification link has been sent to your email address.
                     </div>
                 </div>
+            </div>
+
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="country" value="Country" />
+                <select
+                    id="country"
+                    v-model="form.country"
+                    class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 focus:border-indigo-500 focus:ring-indigo-500"
+                    required
+                >
+                    <option
+                        v-for="country in countryOptions"
+                        :key="country.code"
+                        :value="country.code"
+                    >
+                        {{ country.name }}
+                    </option>
+                </select>
+                <InputError :message="form.errors.country" class="mt-2" />
             </div>
 
             <div class="col-span-6">

@@ -24,6 +24,7 @@ class CreateNewUser implements CreatesNewUsers
         Validator::make($input, [
             'name' => ['required', 'string', 'max:255', 'alpha_num', 'lowercase', 'unique:users'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
+            'country' => ['required', 'string', 'size:2', 'alpha'],
             'password' => $this->passwordRules(),
             'terms' => Jetstream::hasTermsAndPrivacyPolicyFeature() ? ['accepted', 'required'] : '',
         ],
@@ -35,6 +36,7 @@ class CreateNewUser implements CreatesNewUsers
             return tap(User::create([
                 'name' => $input['name'],
                 'email' => $input['email'],
+                'country' => strtoupper((string) $input['country']),
                 'password' => Hash::make($input['password']),
             ]), function (User $user) {
                 // only one team created for admin by database seeder

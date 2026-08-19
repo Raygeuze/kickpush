@@ -21,6 +21,7 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
         Validator::make($input, [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
+            'country' => ['required', 'string', 'size:2', 'alpha'],
             'photo' => ['nullable', 'mimes:jpg,jpeg,png', 'max:1024'],
             'additional_taxes' => ['nullable', 'array', 'max:50'],
             'additional_taxes.*.name' => ['required', 'string', 'max:120'],
@@ -47,6 +48,7 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
                 $user->forceFill([
                     'name' => $input['name'],
                     'email' => $input['email'],
+                    'country' => strtoupper((string) $input['country']),
                     'bank_account_name' => $input['bank_account_name'] ?? null,
                     'bank_name' => $input['bank_name'] ?? null,
                     'bsb_code' => $input['bsb_code'] ?? null,
@@ -69,6 +71,7 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             $user->forceFill([
                 'name' => $input['name'],
                 'email' => $input['email'],
+                'country' => strtoupper((string) $input['country']),
                 'bank_account_name' => $input['bank_account_name'] ?? null,
                 'bank_name' => $input['bank_name'] ?? null,
                 'bsb_code' => $input['bsb_code'] ?? null,

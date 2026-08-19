@@ -34,12 +34,13 @@ class RegisteredUserController extends Controller
             'name' => 'required|string|lowercase|max:255|alpha_num|unique:'.User::class,
             'email' => 'required|string|lowercase|email|max:255|unique:'.User::class,
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
-            'country' => 'required|string',
+            'country' => 'required|string|size:2|alpha',
         ]);
 
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
+            'country' => strtoupper((string) $request->country),
             'password' => Hash::make($request->password),
         ]);
 
@@ -47,6 +48,6 @@ class RegisteredUserController extends Controller
 
         Auth::login($user);
 
-        return redirect(route('/', absolute: false));
+        return redirect(route('/', [], false));
     }
 }
