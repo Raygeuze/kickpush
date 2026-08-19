@@ -26,6 +26,10 @@ const props = defineProps({
             sessions_count: 0,
             total_duration_seconds: 0,
             total_expenses_amount: 0,
+            subtotal_amount: 0,
+            discount_type: null,
+            discount_value: 0,
+            discount_amount: 0,
             total_billable_amount: 0,
         }),
     },
@@ -46,6 +50,7 @@ const isSubmittingExpense = ref(false);
 const isSubmittingManualSession = ref(false);
 const isInlineTimerLoading = ref(false);
 const isDeletingInvoice = ref(false);
+const isSavingDiscount = ref(false);
 const savingSessionDateIds = ref([]);
 const savingSessionDurationIds = ref([]);
 const editingSessionDurationId = ref(null);
@@ -80,6 +85,8 @@ const expenseName = ref('');
 const expenseDescription = ref('');
 const expenseAmount = ref('');
 const manualDurationMinutes = ref('');
+const discountType = ref(invoice.value?.discount_type || '');
+const discountValue = ref(Number(invoice.value?.discount_value ?? 0));
 
 function getDefaultManualStartedAt() {
     const now = new Date();
@@ -215,8 +222,14 @@ function applyPayload(data) {
         sessions_count: 0,
         total_duration_seconds: 0,
         total_expenses_amount: 0,
+        subtotal_amount: 0,
+        discount_type: null,
+        discount_value: 0,
+        discount_amount: 0,
         total_billable_amount: 0,
     };
+    discountType.value = invoice.value?.discount_type || '';
+    discountValue.value = Number(invoice.value?.discount_value ?? 0);
 
     if (editingSessionDurationId.value !== null) {
         const sessionStillPresent = assignedSessions.value.some(
@@ -736,6 +749,41 @@ async function removeExpense(expenseId) {
     }
 }
 
+async function saveInvoiceDiscount() {
+    if (isFinalized.value || isSavingDiscount.value) {
+        return;
+    }
+
+    const normalizedType = discountType.value || null;
+    const normalizedValue = normalizedType ? Number(discountValue.value || 0) : 0;
+
+    if (normalizedType === 'percentage' && (normalizedValue < 0 || normalizedValue > 100)) {
+        statusMessage.value = 'Percentage discount must be between 0 and 100.';
+        return;
+    }
+
+    if (normalizedType === 'fixed' && normalizedValue < 0) {
+        statusMessage.value = 'Fixed discount must be zero or greater.';
+        return;
+    }
+
+    isSavingDiscount.value = true;
+
+    try {
+        const response = await axios.post(`/invoices/${invoice.value.id}/discount`, {
+            discount_type: normalizedType,
+            discount_value: normalizedValue,
+        });
+
+        applyPayload(response.data);
+        statusMessage.value = response.data.message || 'Invoice discount updated.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to update invoice discount.';
+    } finally {
+        isSavingDiscount.value = false;
+    }
+}
+
 onMounted(() => {
     loadInlineTimerStatus();
 });
@@ -866,6 +914,45 @@ onBeforeUnmount(() => {
                     <p v-if="statusMessage" class="mt-4 text-sm text-gray-700 dark:text-gray-200">
                         {{ statusMessage }}
                     </p>
+
+                    <div class="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                        <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Invoice Discount</p>
+                        <div class="mt-2 grid grid-cols-1 sm:grid-cols-[180px_1fr_auto] gap-3 items-end">
+                            <select
+                                v-model="discountType"
+                                class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                :disabled="isFinalized || isSavingDiscount"
+                            >
+                                <option value="">No discount</option>
+                                <option value="percentage">Percentage</option>
+                                <option value="fixed">Fixed amount</option>
+                            </select>
+
+                            <input
+                                v-model="discountValue"
+                                type="number"
+                                min="0"
+                                :max="discountType === 'percentage' ? 100 : undefined"
+                                step="0.01"
+                                class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                :placeholder="discountType === 'percentage' ? 'Percent (0-100)' : 'Amount'"
+                                :disabled="isFinalized || isSavingDiscount || !discountType"
+                            />
+
+                            <button
+                                type="button"
+                                class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
+                                :disabled="isFinalized || isSavingDiscount"
+                                @click="saveInvoiceDiscount"
+                            >
+                                {{ isSavingDiscount ? 'Saving...' : 'Save Discount' }}
+                            </button>
+                        </div>
+
+                        <p class="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                            Applied discount: {{ formatCurrency(summary.discount_amount || 0) }}
+                        </p>
+                    </div>
 
                     <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">

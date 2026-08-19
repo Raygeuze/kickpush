@@ -22,6 +22,8 @@ class Invoice extends Model
         'due_at',
         'paid_at',
         'notes',
+        'discount_type',
+        'discount_value',
     ];
 
     protected function casts(): array
@@ -32,6 +34,7 @@ class Invoice extends Model
             'paid_at' => 'datetime',
             'conversion_rate' => 'decimal:8',
             'conversion_rate_fetched_at' => 'datetime',
+            'discount_value' => 'decimal:2',
         ];
     }
 

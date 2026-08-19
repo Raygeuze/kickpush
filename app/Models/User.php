@@ -40,8 +40,6 @@ class User extends Authenticatable
         'country',
         'stripe_account_id',
         'stripe_customer_id',
-        'income_tax_rate',
-        'student_loan_tax_rate',
         'bank_account_name',
         'bank_name',
         'bsb_code',
@@ -79,8 +77,6 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'income_tax_rate' => 'decimal:2',
-            'student_loan_tax_rate' => 'decimal:2',
         ];
     }
 

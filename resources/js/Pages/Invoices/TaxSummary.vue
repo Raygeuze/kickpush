@@ -228,16 +228,16 @@ function allocationAmountForConvertedTable(item) {
                         <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                                 <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Subtotal</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.subtotal_amount || taxSummary.gross_amount) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Discount</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">-{{ formatCurrency(summary.discount_amount || 0) }}</td>
+                                </tr>
+                                <tr>
                                     <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Gross Invoice Amount</td>
                                     <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.gross_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Income Tax ({{ formatPercent(taxSummary.income_tax_rate) }})</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.income_tax_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Student Loan Tax ({{ formatPercent(taxSummary.student_loan_tax_rate) }})</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.student_loan_tax_amount) }}</td>
                                 </tr>
                                 <tr
                                     v-for="(item, index) in taxAndLevyItems"
@@ -301,16 +301,16 @@ function allocationAmountForConvertedTable(item) {
                             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
                                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                                     <tr>
+                                        <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Subtotal</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertAmount(summary.subtotal_amount || taxSummary.gross_amount), currencyConversion.target_currency) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Discount</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">-{{ formatCurrency(convertAmount(summary.discount_amount || 0), currencyConversion.target_currency) }}</td>
+                                    </tr>
+                                    <tr>
                                         <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Gross Invoice Amount</td>
                                         <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(currencyConversion.gross_amount_converted, currencyConversion.target_currency) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Income Tax ({{ formatPercent(taxSummary.income_tax_rate) }})</td>
-                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertAmount(taxSummary.income_tax_amount), currencyConversion.target_currency) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Student Loan Tax ({{ formatPercent(taxSummary.student_loan_tax_rate) }})</td>
-                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertAmount(taxSummary.student_loan_tax_amount), currencyConversion.target_currency) }}</td>
                                     </tr>
                                     <tr
                                         v-for="(item, index) in taxAndLevyItems"

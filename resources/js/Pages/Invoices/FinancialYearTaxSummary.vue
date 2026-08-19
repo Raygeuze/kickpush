@@ -183,11 +183,19 @@ function openFinancialYear(startYear) {
                         <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                                 <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Subtotal</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.subtotal_amount || taxSummary.gross_amount) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Discount</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">-{{ formatCurrency(summary.total_discount_amount || 0) }}</td>
+                                </tr>
+                                <tr>
                                     <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Billable Time</td>
                                     <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.billable_time_amount) }}</td>
                                 </tr>
                                 <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Expenses</td>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Line Items</td>
                                     <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.total_expenses_amount) }}</td>
                                 </tr>
                                 <tr>
@@ -195,12 +203,16 @@ function openFinancialYear(startYear) {
                                     <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.gross_amount) }}</td>
                                 </tr>
                                 <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Income Tax ({{ formatPercent(taxSummary.income_tax_rate) }})</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.income_tax_amount) }}</td>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Business Expenses</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.total_business_expenses_amount) }}</td>
                                 </tr>
                                 <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Student Loan Tax ({{ formatPercent(taxSummary.student_loan_tax_rate) }})</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.student_loan_tax_amount) }}</td>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Tax Deductible Business Expenses</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">{{ formatCurrency(taxSummary.deductible_business_expenses_amount) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Taxable Amount</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.taxable_amount) }}</td>
                                 </tr>
                                 <tr
                                     v-for="(item, index) in taxAndLevyItems"
@@ -214,7 +226,11 @@ function openFinancialYear(startYear) {
                                 </tr>
                                 <tr>
                                     <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Tax</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(taxSummary.total_tax_amount) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(taxSummary.total_tax_after_deductible_expenses_amount || taxSummary.total_tax_amount) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Tax Savings From Deductible Expenses</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">{{ formatCurrency(taxSummary.tax_savings_from_deductible_expenses_amount) }}</td>
                                 </tr>
                                 <tr class="bg-emerald-50 dark:bg-emerald-900/20">
                                     <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Net Profit After Tax</td>

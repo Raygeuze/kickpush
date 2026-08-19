@@ -240,12 +240,33 @@ async function deleteInvoice(invoiceId) {
                                 </div>
 
                                 <div class="flex flex-col items-end gap-2">
-                                    <span
-                                        class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-                                        :class="invoice.status === 'paid' ? 'bg-green-700 text-white' : (invoice.is_finalized ? 'bg-gray-800 text-white' : 'bg-emerald-100 text-emerald-700')"
-                                    >
-                                        {{ invoice.status === 'paid' ? 'Paid' : (invoice.is_finalized ? 'Finalized' : 'Draft') }}
-                                    </span>
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
+                                            :class="invoice.status === 'paid' ? 'bg-green-700 text-white' : (invoice.is_finalized ? 'bg-gray-800 text-white' : 'bg-emerald-100 text-emerald-700')"
+                                        >
+                                            {{ invoice.status === 'paid' ? 'Paid' : (invoice.is_finalized ? 'Finalized' : 'Draft') }}
+                                        </span>
+
+                                        <button
+                                            v-if="!invoice.is_finalized"
+                                            type="button"
+                                            class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-60"
+                                            :disabled="isDeletingInvoice(invoice.id)"
+                                            title="Delete Invoice"
+                                            aria-label="Delete Invoice"
+                                            @click.prevent="deleteInvoice(invoice.id)"
+                                        >
+                                            <span v-if="isDeletingInvoice(invoice.id)" class="text-[10px] font-semibold">...</span>
+                                            <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M3 6h18" />
+                                                <path d="M8 6V4h8v2" />
+                                                <path d="M19 6l-1 14H6L5 6" />
+                                                <path d="M10 11v6" />
+                                                <path d="M14 11v6" />
+                                            </svg>
+                                        </button>
+                                    </div>
 
                                     <button
                                         v-if="invoice.status === 'finalized'"
@@ -265,15 +286,6 @@ async function deleteInvoice(invoiceId) {
                                         Tax Summary
                                     </Link>
 
-                                    <button
-                                        v-if="!invoice.is_finalized"
-                                        type="button"
-                                        class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 transition disabled:opacity-60"
-                                        :disabled="isDeletingInvoice(invoice.id)"
-                                        @click.prevent="deleteInvoice(invoice.id)"
-                                    >
-                                        {{ isDeletingInvoice(invoice.id) ? 'Deleting...' : 'Delete Invoice' }}
-                                    </button>
                                 </div>
                             </div>
                         </Link>

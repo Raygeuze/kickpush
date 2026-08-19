@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Mail\FinalizedInvoiceMail;
+use App\Models\BusinessExpense;
 use App\Models\Client;
 use App\Models\Expense;
 use App\Models\FinancialYear;
@@ -723,6 +724,45 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function updateDiscount(Request $request, int $invoiceId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+        $this->abortIfInvoiceFinalized($invoice);
+
+        $validated = $request->validate([
+            'discount_type' => 'nullable|string|in:percentage,fixed',
+            'discount_value' => 'nullable|numeric|min:0|max:999999999.99',
+        ]);
+
+        $discountType = $validated['discount_type'] ?? null;
+        $discountValue = $discountType !== null
+            ? round((float) ($validated['discount_value'] ?? 0), 2)
+            : 0.0;
+
+        if ($discountType === 'percentage' && $discountValue > 100) {
+            return response()->json([
+                'message' => 'Percentage discount must be between 0 and 100.',
+            ], 422);
+        }
+
+        $invoice->discount_type = $discountType;
+        $invoice->discount_value = $discountValue;
+        $invoice->save();
+
+        $freshInvoice = $invoice->fresh();
+
+        return response()->json([
+            'message' => 'Invoice discount updated.',
+            'invoice' => $this->formatInvoice($freshInvoice),
+            'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
+            'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
+            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'summary' => $this->invoiceSummary($freshInvoice),
+        ]);
+    }
+
     public function finalize(int $invoiceId): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -1027,9 +1067,27 @@ class InvoiceController extends Controller
             ],
         ], $expenseLines);
 
-        $grandTotal = array_reduce($lineItems, function (float $carry, array $line): float {
+        $subtotalAmount = array_reduce($lineItems, function (float $carry, array $line): float {
             return $carry + (float) $line['amount'];
         }, 0.0);
+
+        $discountAmount = $this->calculateInvoiceDiscountAmount(
+            $subtotalAmount,
+            $freshInvoice->discount_type,
+            (float) ($freshInvoice->discount_value ?? 0)
+        );
+
+        if ($discountAmount > 0) {
+            $lineItems[] = [
+                'label' => 'Invoice discount',
+                'description' => $freshInvoice->discount_type === 'percentage'
+                    ? number_format((float) $freshInvoice->discount_value, 2) . '%'
+                    : 'Fixed amount',
+                'amount' => -$discountAmount,
+            ];
+        }
+
+        $grandTotal = max(0.0, round($subtotalAmount - $discountAmount, 2));
 
         $generatedAt = now();
         $dueDate = $freshInvoice->due_at ?: $generatedAt->copy()->addDays(14);
@@ -1178,13 +1236,23 @@ class InvoiceController extends Controller
             ->sum('amount'));
         $hourlyRate = $invoice->client ? (float) $invoice->client->hourly_rate : 0;
         $billableTimeAmount = round(($totalDurationSeconds / 3600) * $hourlyRate, 2);
-        $totalBillableAmount = $billableTimeAmount + $totalExpensesAmount;
+        $subtotalAmount = round($billableTimeAmount + $totalExpensesAmount, 2);
+        $discountAmount = $this->calculateInvoiceDiscountAmount(
+            $subtotalAmount,
+            $invoice->discount_type,
+            (float) ($invoice->discount_value ?? 0)
+        );
+        $totalBillableAmount = round(max(0, $subtotalAmount - $discountAmount), 2);
 
         return [
             'sessions_count' => $sessionsCount,
             'total_duration_seconds' => $totalDurationSeconds,
             'total_expenses_amount' => $totalExpensesAmount,
             'billable_time_amount' => $billableTimeAmount,
+            'subtotal_amount' => $subtotalAmount,
+            'discount_type' => $invoice->discount_type,
+            'discount_value' => (float) ($invoice->discount_value ?? 0),
+            'discount_amount' => $discountAmount,
             'total_billable_amount' => $totalBillableAmount,
         ];
     }
@@ -1193,15 +1261,16 @@ class InvoiceController extends Controller
     {
         $user = Auth::user();
         $grossAmount = (float) ($summary['total_billable_amount'] ?? 0);
+        $deductibleBusinessExpensesAmount = round((float) ($summary['deductible_business_expenses_amount'] ?? 0), 2);
+        $taxableAmount = round(max(0, $grossAmount - $deductibleBusinessExpensesAmount), 2);
         $resolvedBaseCurrency = $this->normalizeCurrencyCode($baseCurrency) ?? 'USD';
-        $incomeTaxRate = $user ? (float) $user->income_tax_rate : 0;
-        $studentLoanTaxRate = $user ? (float) $user->student_loan_tax_rate : 0;
         $additionalTaxItems = $this->userAdditionalTaxItems();
         $rateCache = [];
-        $incomeTaxAmount = round($grossAmount * ($incomeTaxRate / 100), 2);
-        $studentLoanTaxAmount = round($grossAmount * ($studentLoanTaxRate / 100), 2);
-        $additionalTaxes = $this->calculateAdditionalTaxItems($grossAmount, $additionalTaxItems, $resolvedBaseCurrency, $rateCache);
-        $totalTaxAmount = round($incomeTaxAmount + $studentLoanTaxAmount + $additionalTaxes['tax_total'], 2);
+        $additionalTaxesBeforeDeductions = $this->calculateAdditionalTaxItems($grossAmount, $additionalTaxItems, $resolvedBaseCurrency, $rateCache);
+        $totalTaxBeforeDeductionsAmount = round($additionalTaxesBeforeDeductions['tax_total'], 2);
+        $additionalTaxes = $this->calculateAdditionalTaxItems($taxableAmount, $additionalTaxItems, $resolvedBaseCurrency, $rateCache);
+        $totalTaxAmount = round($additionalTaxes['tax_total'], 2);
+        $taxSavingsFromDeductionsAmount = round(max(0, $totalTaxBeforeDeductionsAmount - $totalTaxAmount), 2);
         $allocationTotal = $includeAllocations ? $additionalTaxes['allocation_total'] : 0.0;
         $netAfterTaxAmount = round($grossAmount - $totalTaxAmount, 2);
         $totalDeductionsAmount = round($totalTaxAmount + $allocationTotal, 2);
@@ -1209,13 +1278,14 @@ class InvoiceController extends Controller
 
         return [
             'gross_amount' => $grossAmount,
-            'income_tax_rate' => $incomeTaxRate,
-            'income_tax_amount' => $incomeTaxAmount,
-            'student_loan_tax_rate' => $studentLoanTaxRate,
-            'student_loan_tax_amount' => $studentLoanTaxAmount,
+            'deductible_business_expenses_amount' => $deductibleBusinessExpensesAmount,
+            'taxable_amount' => $taxableAmount,
             'additional_tax_items' => $additionalTaxes['items'],
             'currency' => $resolvedBaseCurrency,
             'additional_tax_total' => $additionalTaxes['tax_total'],
+            'total_tax_before_deductible_expenses_amount' => $totalTaxBeforeDeductionsAmount,
+            'total_tax_after_deductible_expenses_amount' => $totalTaxAmount,
+            'tax_savings_from_deductible_expenses_amount' => $taxSavingsFromDeductionsAmount,
             'allocation_total' => $allocationTotal,
             'total_tax_amount' => $totalTaxAmount,
             'net_after_tax_amount' => $netAfterTaxAmount,
@@ -1598,10 +1668,27 @@ class InvoiceController extends Controller
 
     private function financialYearInvoiceSummary(FinancialYear $financialYear): array
     {
+        $businessExpenses = BusinessExpense::query()
+            ->where('user_id', Auth::id())
+            ->where('financial_year_id', $financialYear->id)
+            ->get(['amount', 'tax_deductible', 'deductible_percentage']);
+
+        $totalBusinessExpensesAmount = round((float) $businessExpenses->sum(fn (BusinessExpense $expense): float => (float) $expense->amount), 2);
+        $deductibleBusinessExpensesAmount = round((float) $businessExpenses->sum(function (BusinessExpense $expense): float {
+            if (! $expense->tax_deductible) {
+                return 0.0;
+            }
+
+            $deductiblePercentage = (float) ($expense->deductible_percentage ?? 100);
+            $normalizedPercentage = max(0, min(100, $deductiblePercentage));
+
+            return (float) $expense->amount * ($normalizedPercentage / 100);
+        }), 2);
+
         $invoices = $this->applyActorScope(Invoice::query())
             ->where('financial_year_id', $financialYear->id)
             ->with('client:id,hourly_rate')
-            ->get(['id', 'client_id']);
+            ->get(['id', 'client_id', 'discount_type', 'discount_value']);
 
         $invoiceIds = $invoices->pluck('id')->all();
 
@@ -1612,7 +1699,11 @@ class InvoiceController extends Controller
                 'total_duration_seconds' => 0,
                 'total_expenses_amount' => 0,
                 'billable_time_amount' => 0,
+                'subtotal_amount' => 0,
+                'total_discount_amount' => 0,
                 'total_billable_amount' => 0,
+                'total_business_expenses_amount' => $totalBusinessExpensesAmount,
+                'deductible_business_expenses_amount' => $deductibleBusinessExpensesAmount,
             ];
         }
 
@@ -1625,21 +1716,46 @@ class InvoiceController extends Controller
 
         $sessionsCount = (int) $sessionTotals->sum('sessions_count');
         $totalDurationSeconds = (int) $sessionTotals->sum('total_duration_seconds');
-        $totalExpensesAmount = (float) Expense::query()
+        $expenseTotalsByInvoice = Expense::query()
             ->whereIn('invoice_id', $invoiceIds)
-            ->sum('amount');
+            ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as total_expenses_amount')
+            ->groupBy('invoice_id')
+            ->get()
+            ->keyBy('invoice_id');
 
         $invoiceHourlyRates = $invoices->mapWithKeys(fn (Invoice $invoice) => [
             $invoice->id => $invoice->client ? (float) $invoice->client->hourly_rate : 0,
         ]);
 
-        $billableTimeAmount = round((float) $sessionTotals->sum(function ($row) use ($invoiceHourlyRates): float {
+        $billableTimeByInvoice = $sessionTotals->mapWithKeys(function ($row) use ($invoiceHourlyRates): array {
             $rate = (float) ($invoiceHourlyRates[$row->invoice_id] ?? 0);
             $durationSeconds = (int) $row->total_duration_seconds;
 
-            return ($durationSeconds / 3600) * $rate;
-        }), 2);
-        $totalBillableAmount = round($billableTimeAmount + $totalExpensesAmount, 2);
+            return [(int) $row->invoice_id => round(($durationSeconds / 3600) * $rate, 2)];
+        });
+
+        $billableTimeAmount = round((float) $billableTimeByInvoice->sum(), 2);
+        $totalExpensesAmount = round((float) $expenseTotalsByInvoice->sum('total_expenses_amount'), 2);
+        $subtotalAmount = 0.0;
+        $totalDiscountAmount = 0.0;
+
+        foreach ($invoices as $invoice) {
+            $invoiceBillableTime = (float) ($billableTimeByInvoice[$invoice->id] ?? 0);
+            $invoiceExpenses = (float) ($expenseTotalsByInvoice[$invoice->id]->total_expenses_amount ?? 0);
+            $invoiceSubtotal = round($invoiceBillableTime + $invoiceExpenses, 2);
+            $invoiceDiscount = $this->calculateInvoiceDiscountAmount(
+                $invoiceSubtotal,
+                $invoice->discount_type,
+                (float) ($invoice->discount_value ?? 0)
+            );
+
+            $subtotalAmount += $invoiceSubtotal;
+            $totalDiscountAmount += $invoiceDiscount;
+        }
+
+        $subtotalAmount = round($subtotalAmount, 2);
+        $totalDiscountAmount = round($totalDiscountAmount, 2);
+        $totalBillableAmount = round(max(0, $subtotalAmount - $totalDiscountAmount), 2);
 
         return [
             'invoice_count' => count($invoiceIds),
@@ -1647,15 +1763,16 @@ class InvoiceController extends Controller
             'total_duration_seconds' => $totalDurationSeconds,
             'total_expenses_amount' => $totalExpensesAmount,
             'billable_time_amount' => $billableTimeAmount,
+            'subtotal_amount' => $subtotalAmount,
+            'total_discount_amount' => $totalDiscountAmount,
             'total_billable_amount' => $totalBillableAmount,
+            'total_business_expenses_amount' => $totalBusinessExpensesAmount,
+            'deductible_business_expenses_amount' => $deductibleBusinessExpensesAmount,
         ];
     }
 
     private function financialYearConvertedTaxSummary(FinancialYear $financialYear): array
     {
-        $user = Auth::user();
-        $incomeTaxRate = $user ? (float) $user->income_tax_rate : 0;
-        $studentLoanTaxRate = $user ? (float) $user->student_loan_tax_rate : 0;
         $additionalTaxItems = $this->userAdditionalTaxItems();
 
         $invoices = $this->applyActorScope(Invoice::query())
@@ -1664,6 +1781,8 @@ class InvoiceController extends Controller
             ->get([
                 'id',
                 'client_id',
+                'discount_type',
+                'discount_value',
                 'conversion_source_currency',
                 'conversion_target_currency',
                 'conversion_rate',
@@ -1714,11 +1833,15 @@ class InvoiceController extends Controller
             $hourlyRate = $invoice->client ? (float) $invoice->client->hourly_rate : 0;
             $billableTimeAmount = round(($durationSeconds / 3600) * $hourlyRate, 2);
             $expensesAmount = (float) (($expenseTotals[$invoice->id]->total_expenses_amount ?? 0));
-            $grossAmount = round($billableTimeAmount + $expensesAmount, 2);
-            $incomeTaxAmount = round($grossAmount * ($incomeTaxRate / 100), 2);
-            $studentLoanTaxAmount = round($grossAmount * ($studentLoanTaxRate / 100), 2);
+            $subtotalAmount = round($billableTimeAmount + $expensesAmount, 2);
+            $discountAmount = $this->calculateInvoiceDiscountAmount(
+                $subtotalAmount,
+                $invoice->discount_type,
+                (float) ($invoice->discount_value ?? 0)
+            );
+            $grossAmount = round(max(0, $subtotalAmount - $discountAmount), 2);
             $additionalTaxes = $this->calculateAdditionalTaxItems($grossAmount, $additionalTaxItems, $sourceCurrency, $rateCache);
-            $totalTaxAmount = round($incomeTaxAmount + $studentLoanTaxAmount + $additionalTaxes['tax_total'], 2);
+            $totalTaxAmount = round($additionalTaxes['tax_total'], 2);
             $allocationTotal = 0.0;
             $netAfterTaxAmount = round($grossAmount - $totalTaxAmount, 2);
             $totalDeductionsAmount = round($totalTaxAmount + $allocationTotal, 2);
@@ -1790,6 +1913,28 @@ class InvoiceController extends Controller
         );
     }
 
+    private function calculateInvoiceDiscountAmount(float $subtotalAmount, ?string $discountType, float $discountValue): float
+    {
+        $normalizedType = strtolower((string) $discountType);
+        $safeSubtotal = max(0, round($subtotalAmount, 2));
+        $safeValue = max(0, round($discountValue, 2));
+
+        if ($safeSubtotal <= 0 || $safeValue <= 0) {
+            return 0.0;
+        }
+
+        if ($normalizedType === 'percentage') {
+            $boundedRate = min(100, $safeValue);
+            return round($safeSubtotal * ($boundedRate / 100), 2);
+        }
+
+        if ($normalizedType === 'fixed') {
+            return round(min($safeSubtotal, $safeValue), 2);
+        }
+
+        return 0.0;
+    }
+
     private function formatInvoice(Invoice $invoice): array
     {
         $invoice->loadMissing(['client', 'financialYear']);
@@ -1820,6 +1965,8 @@ class InvoiceController extends Controller
                 'notes' => $invoice->client->notes,
             ] : null,
             'status' => $invoice->status,
+            'discount_type' => $invoice->discount_type,
+            'discount_value' => (float) ($invoice->discount_value ?? 0),
             'issued_at' => $invoice->issued_at,
             'due_at' => $invoice->due_at,
             'paid_at' => $invoice->paid_at,

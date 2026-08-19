@@ -96,8 +96,6 @@ const form = useForm({
     _method: 'PUT',
     name: props.user.name,
     email: props.user.email,
-    income_tax_rate: props.user.income_tax_rate ?? 0,
-    student_loan_tax_rate: props.user.student_loan_tax_rate ?? 0,
     bank_account_name: props.user.bank_account_name ?? '',
     bank_name: props.user.bank_name ?? '',
     bsb_code: props.user.bsb_code ?? '',
@@ -294,36 +292,6 @@ const reindexAdditionalTaxes = () => {
                         A new verification link has been sent to your email address.
                     </div>
                 </div>
-            </div>
-
-            <!-- Income Tax Rate -->
-            <div class="col-span-6 sm:col-span-4">
-                <InputLabel for="income_tax_rate" value="Income Tax Rate (%)" />
-                <TextInput
-                    id="income_tax_rate"
-                    v-model="form.income_tax_rate"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    class="mt-1 block w-full"
-                />
-                <InputError :message="form.errors.income_tax_rate" class="mt-2" />
-            </div>
-
-            <!-- Student Loan Tax Rate -->
-            <div class="col-span-6 sm:col-span-4">
-                <InputLabel for="student_loan_tax_rate" value="Student Loan Tax Rate (%)" />
-                <TextInput
-                    id="student_loan_tax_rate"
-                    v-model="form.student_loan_tax_rate"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    class="mt-1 block w-full"
-                />
-                <InputError :message="form.errors.student_loan_tax_rate" class="mt-2" />
             </div>
 
             <div class="col-span-6">

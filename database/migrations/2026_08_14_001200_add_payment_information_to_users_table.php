@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->string('bank_account_name')->nullable()->after('student_loan_tax_rate');
+            $table->string('bank_account_name')->nullable()->after('hourly_rate');
             $table->string('bank_name')->nullable()->after('bank_account_name');
             $table->string('bank_account_number', 64)->nullable()->after('bank_name');
         });

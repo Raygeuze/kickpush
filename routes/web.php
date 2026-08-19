@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\BusinessExpenseController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\TimerSessionController;
 use Illuminate\Support\Facades\Route;
@@ -20,6 +21,11 @@ Route::middleware('auth')->group(function () {
     Route::post('/clients/create', [ClientController::class, 'create'])->name('clients.create');
     Route::put('/clients/{clientId}', [ClientController::class, 'update'])->name('clients.update');
 
+    Route::get('/business-expenses', [BusinessExpenseController::class, 'index'])->name('businessExpenses.index');
+    Route::post('/business-expenses', [BusinessExpenseController::class, 'store'])->name('businessExpenses.store');
+    Route::post('/business-expenses/{businessExpenseId}', [BusinessExpenseController::class, 'update'])->name('businessExpenses.update');
+    Route::delete('/business-expenses/{businessExpenseId}', [BusinessExpenseController::class, 'destroy'])->name('businessExpenses.destroy');
+
     Route::post('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
     Route::get('/invoices/latest', [InvoiceController::class, 'latest'])->name('invoices.latest');
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
@@ -38,6 +44,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/resume', [InvoiceController::class, 'resumeStoppedSession'])->name('invoices.sessions.resume');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/date', [InvoiceController::class, 'updateSessionDate'])->name('invoices.sessions.updateDate');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/duration', [InvoiceController::class, 'updateSessionDuration'])->name('invoices.sessions.updateDuration');
+    Route::post('/invoices/{invoiceId}/discount', [InvoiceController::class, 'updateDiscount'])->name('invoices.discount.update');
     Route::delete('/invoices/{invoiceId}/sessions/{sessionId}', [InvoiceController::class, 'detachSession'])->name('invoices.sessions.detach');
     Route::post('/invoices/{invoiceId}/expenses', [InvoiceController::class, 'addExpense'])->name('invoices.expenses.add');
     Route::delete('/invoices/{invoiceId}/expenses/{expenseId}', [InvoiceController::class, 'removeExpense'])->name('invoices.expenses.remove');
