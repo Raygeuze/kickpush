@@ -118,6 +118,19 @@ function formatDateTime(value) {
     return new Date(value).toLocaleDateString();
 }
 
+function formatSessionHeaderDate(value) {
+    if (!value) {
+        return '-';
+    }
+
+    return new Date(value).toLocaleDateString(undefined, {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    });
+}
+
 function formatDuration(totalSeconds) {
     const safeSeconds = Math.max(0, Number(totalSeconds || 0));
     const hours = Math.floor(safeSeconds / 3600);
@@ -679,7 +692,7 @@ async function addExpense() {
     }
 
     if (!expenseAmount.value || Number(expenseAmount.value) <= 0) {
-        statusMessage.value = 'Enter an expense amount greater than 0.';
+        statusMessage.value = 'Enter a line item amount greater than 0.';
         return;
     }
 
@@ -693,12 +706,12 @@ async function addExpense() {
         });
 
         applyPayload(response.data);
-        statusMessage.value = response.data.message || 'Expense added to invoice.';
+        statusMessage.value = response.data.message || 'Line item added to invoice.';
         expenseName.value = '';
         expenseDescription.value = '';
         expenseAmount.value = '';
     } catch (error) {
-        statusMessage.value = error?.response?.data?.message || 'Failed to add expense.';
+        statusMessage.value = error?.response?.data?.message || 'Failed to add line item.';
     } finally {
         isSubmittingExpense.value = false;
     }
@@ -715,9 +728,9 @@ async function removeExpense(expenseId) {
         const response = await axios.delete(`/invoices/${invoice.value.id}/expenses/${expenseId}`);
 
         applyPayload(response.data);
-        statusMessage.value = response.data.message || 'Expense removed from invoice.';
+        statusMessage.value = response.data.message || 'Line item removed from invoice.';
     } catch (error) {
-        statusMessage.value = error?.response?.data?.message || 'Failed to remove expense.';
+        statusMessage.value = error?.response?.data?.message || 'Failed to remove line item.';
     } finally {
         busyExpenseIds.value = busyExpenseIds.value.filter((id) => id !== expenseId);
     }
@@ -864,7 +877,7 @@ onBeforeUnmount(() => {
                             <p class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">{{ formatDuration(summary.total_duration_seconds) }}</p>
                         </div>
                         <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                            <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">One-Off Expenses</p>
+                            <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">One-Off Line Items</p>
                             <p class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">{{ formatCurrency(summary.total_expenses_amount) }}</p>
                         </div>
                         <div class="rounded-xl border border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700 p-4">
@@ -882,7 +895,7 @@ onBeforeUnmount(() => {
                     </p>
 
                     <div class="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                        <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Inline Timer</p>
+                        <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Timer</p>
                         <p class="mt-2 text-3xl font-bold text-gray-900 dark:text-white">
                             {{ formatDuration(inlineElapsedSeconds) }}
                         </p>
@@ -896,7 +909,7 @@ onBeforeUnmount(() => {
                             :disabled="isFinalized || isInlineTimerLoading"
                             @click="runInlinePrimaryAction"
                         >
-                            {{ isInlineTimerLoading ? 'Working...' : (isInlineTimerRunning ? 'Pause Inline Timer' : isInlineTimerPaused ? 'Resume Inline Timer' : 'Start Inline Timer') }}
+                            {{ isInlineTimerLoading ? 'Working...' : (isInlineTimerRunning ? 'Pause Timer' : isInlineTimerPaused ? 'Resume Timer' : 'Start Timer') }}
                         </button>
 
                         <button
@@ -936,7 +949,7 @@ onBeforeUnmount(() => {
                             :disabled="isFinalized || isSubmittingManualSession"
                             @click="createManualSession"
                         >
-                            {{ isSubmittingManualSession ? 'Adding Manual Session...' : 'Add Manual Session' }}
+                            {{ isSubmittingManualSession ? 'Adding Session...' : 'Add Session' }}
                         </button>
                     </div>
 
@@ -952,7 +965,7 @@ onBeforeUnmount(() => {
                         >
                             <div class="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatDateTime(session.started_at || session.created_at) }}</p>
+                                    <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatSessionHeaderDate(session.started_at || session.created_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Started: {{ formatDateTime(session.started_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Stopped: {{ formatDateTime(session.stopped_at) }}</p>
                                     <div class="mt-2 flex items-center gap-2">
@@ -1043,12 +1056,21 @@ onBeforeUnmount(() => {
 
                                     <button
                                         type="button"
-                                        class="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-60"
+                                        class="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition disabled:opacity-60"
                                         :class="isFinalized ? 'bg-gray-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'"
                                         :disabled="isFinalized || isBusy(session.id)"
+                                        title="Remove session"
+                                        aria-label="Remove session"
                                         @click="removeSession(session.id)"
                                     >
-                                        {{ isBusy(session.id) ? 'Removing...' : 'Remove' }}
+                                        <span v-if="isBusy(session.id)" class="text-[10px] font-semibold">...</span>
+                                        <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M3 6h18" />
+                                            <path d="M8 6V4h8v2" />
+                                            <path d="M19 6l-1 14H6L5 6" />
+                                            <path d="M10 11v6" />
+                                            <path d="M14 11v6" />
+                                        </svg>
                                     </button>
                                 </div>
                             </div>
@@ -1057,7 +1079,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">One-Off Expenses</h2>
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">One-Off Line Items</h2>
 
                     <p v-if="isFinalized" class="mt-3 text-sm text-gray-600 dark:text-gray-300">
                         This invoice is finalized and cannot be changed.
@@ -1068,7 +1090,7 @@ onBeforeUnmount(() => {
                             v-model="expenseName"
                             type="text"
                             class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                            placeholder="Expense name (optional)"
+                            placeholder="Line item name (optional)"
                             :disabled="isFinalized || isSubmittingExpense"
                         />
 
@@ -1097,11 +1119,11 @@ onBeforeUnmount(() => {
                         :disabled="isFinalized || isSubmittingExpense"
                         @click="addExpense"
                     >
-                        {{ isSubmittingExpense ? 'Adding Expense...' : 'Add Expense' }}
+                        {{ isSubmittingExpense ? 'Adding Line Item...' : 'Add Line Item' }}
                     </button>
 
                     <p v-if="expenses.length === 0" class="mt-5 text-sm text-gray-600 dark:text-gray-300">
-                        No expenses added yet.
+                        No line items added yet.
                     </p>
 
                     <div v-else class="mt-5 space-y-3">
@@ -1113,7 +1135,7 @@ onBeforeUnmount(() => {
                             <div class="flex flex-wrap items-center justify-between gap-3">
                                 <div>
                                     <p class="text-sm font-semibold text-gray-900 dark:text-white">
-                                        {{ expense.name || 'One-off expense' }}
+                                        {{ expense.name || 'One-off line item' }}
                                     </p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">
                                         {{ expense.description || 'No description provided.' }}
