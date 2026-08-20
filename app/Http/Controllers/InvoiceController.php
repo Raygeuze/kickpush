@@ -195,9 +195,7 @@ class InvoiceController extends Controller
             : $this->defaultNzFinancialYearStart();
         $financialYear = $this->findOrCreateFinancialYearForUser((int) Auth::id(), $financialYearStart);
         $summary = $this->financialYearInvoiceSummary($financialYear);
-        $baseCurrency = $this->currencyForCountry(Auth::user() ? (string) Auth::user()->country : null);
-        $taxSummary = $this->calculateTaxSummary($summary, $baseCurrency, false);
-        $convertedTaxSummary = $this->financialYearConvertedTaxSummary($financialYear);
+        $convertedTaxSummary = $this->financialYearConvertedTaxSummary($financialYear, $summary);
 
         return Inertia::render('Invoices/FinancialYearTaxSummary', [
             'financialYearStart' => $financialYearStart,
@@ -205,7 +203,6 @@ class InvoiceController extends Controller
             'periodStart' => $financialYear->start_date->toDateString(),
             'periodEnd' => $financialYear->end_date->toDateString(),
             'summary' => $summary,
-            'taxSummary' => $taxSummary,
             'convertedTaxSummary' => $convertedTaxSummary,
         ]);
     }
@@ -1402,8 +1399,8 @@ class InvoiceController extends Controller
         $source = $this->normalizeCurrencyCode($invoice->conversion_source_currency)
             ?? $this->normalizeCurrencyCode($invoice->client ? (string) $invoice->client->currency : null)
             ?? 'USD';
-        $target = $this->normalizeCurrencyCode($invoice->conversion_target_currency)
-            ?? $this->currencyForCountry($actor ? (string) $actor->country : null);
+        $target = $this->currencyForCountry($actor ? (string) $actor->country : null);
+        $storedTarget = $this->normalizeCurrencyCode($invoice->conversion_target_currency);
         $grossAmount = (float) ($taxSummary['gross_amount'] ?? 0);
         $totalTaxAmount = (float) ($taxSummary['total_tax_amount'] ?? 0);
         $allocationTotal = (float) ($taxSummary['allocation_total'] ?? 0);
@@ -1415,25 +1412,6 @@ class InvoiceController extends Controller
         $storedAsOf = $invoice->conversion_rate_fetched_at
             ? $invoice->conversion_rate_fetched_at->copy()->toIso8601String()
             : null;
-
-        if ($isFinalized && $storedRate > 0) {
-            return [
-                'available' => true,
-                'is_same_currency' => $source === $target,
-                'is_locked' => true,
-                'source_currency' => $source,
-                'target_currency' => $target,
-                'rate' => $storedRate,
-                'as_of' => $storedAsOf ?? now()->toIso8601String(),
-                'gross_amount_converted' => round($grossAmount * $storedRate, 2),
-                'total_tax_amount_converted' => round($totalTaxAmount * $storedRate, 2),
-                'net_after_tax_amount_converted' => round($netAfterTaxAmount * $storedRate, 2),
-                'allocation_total_converted' => round($allocationTotal * $storedRate, 2),
-                'total_deductions_amount_converted' => round($totalDeductionsAmount * $storedRate, 2),
-                'net_amount_converted' => round($netAmount * $storedRate, 2),
-                'message' => 'Rate locked at invoice finalization.',
-            ];
-        }
 
         if ($source === $target) {
             return [
@@ -1450,20 +1428,28 @@ class InvoiceController extends Controller
                 'allocation_total_converted' => round($allocationTotal, 2),
                 'total_deductions_amount_converted' => round($totalDeductionsAmount, 2),
                 'net_amount_converted' => round($netAmount, 2),
-                'message' => $isFinalized
-                    ? 'No stored finalized rate exists; using same-currency conversion.'
-                    : 'Client currency already matches your country currency.',
+                'message' => 'Client currency already matches your country currency.',
             ];
         }
 
-        if ($isFinalized) {
+        if ($storedRate > 0 && $storedTarget === $target) {
             return [
-                'available' => false,
+                'available' => true,
                 'is_same_currency' => false,
-                'is_locked' => true,
+                'is_locked' => $isFinalized,
                 'source_currency' => $source,
                 'target_currency' => $target,
-                'message' => 'No finalized conversion rate is stored for this invoice.',
+                'rate' => $storedRate,
+                'as_of' => $storedAsOf ?? now()->toIso8601String(),
+                'gross_amount_converted' => round($grossAmount * $storedRate, 2),
+                'total_tax_amount_converted' => round($totalTaxAmount * $storedRate, 2),
+                'net_after_tax_amount_converted' => round($netAfterTaxAmount * $storedRate, 2),
+                'allocation_total_converted' => round($allocationTotal * $storedRate, 2),
+                'total_deductions_amount_converted' => round($totalDeductionsAmount * $storedRate, 2),
+                'net_amount_converted' => round($netAmount * $storedRate, 2),
+                'message' => $isFinalized
+                    ? 'Rate locked at invoice finalization.'
+                    : 'Using stored conversion snapshot for this invoice.',
             ];
         }
 
@@ -1504,7 +1490,7 @@ class InvoiceController extends Controller
             return [
                 'available' => false,
                 'is_same_currency' => false,
-                'is_locked' => false,
+                'is_locked' => $isFinalized,
                 'source_currency' => $source,
                 'target_currency' => $target,
                 'message' => 'Live conversion is temporarily unavailable.',
@@ -1530,7 +1516,9 @@ class InvoiceController extends Controller
             'allocation_total_converted' => round($allocationTotal * $rate, 2),
             'total_deductions_amount_converted' => round($totalDeductionsAmount * $rate, 2),
             'net_amount_converted' => round($netAmount * $rate, 2),
-            'message' => null,
+            'message' => $isFinalized && $storedRate > 0 && $storedTarget !== null && $storedTarget !== $target
+                ? 'Stored finalized rate target differs from your current country currency; showing live conversion.'
+                : null,
         ];
     }
 
@@ -1687,6 +1675,7 @@ class InvoiceController extends Controller
 
         $invoices = $this->applyActorScope(Invoice::query())
             ->where('financial_year_id', $financialYear->id)
+            ->where('status', 'paid')
             ->with('client:id,hourly_rate')
             ->get(['id', 'client_id', 'discount_type', 'discount_value']);
 
@@ -1771,13 +1760,16 @@ class InvoiceController extends Controller
         ];
     }
 
-    private function financialYearConvertedTaxSummary(FinancialYear $financialYear): array
+    private function financialYearConvertedTaxSummary(FinancialYear $financialYear, array $financialSummary): array
     {
+        $actor = Auth::user();
+        $targetCurrency = $this->currencyForCountry($actor ? (string) $actor->country : null);
         $additionalTaxItems = $this->userAdditionalTaxItems();
 
         $invoices = $this->applyActorScope(Invoice::query())
             ->where('financial_year_id', $financialYear->id)
-            ->with('client:id,hourly_rate')
+            ->where('status', 'paid')
+            ->with('client:id,hourly_rate,currency')
             ->get([
                 'id',
                 'client_id',
@@ -1790,10 +1782,27 @@ class InvoiceController extends Controller
 
         if ($invoices->isEmpty()) {
             return [
+                'target_currency' => $targetCurrency,
                 'total_invoices' => 0,
                 'converted_invoices' => 0,
                 'missing_rate_invoices' => 0,
-                'groups' => [],
+                'billable_time_amount_converted' => 0.0,
+                'total_expenses_amount_converted' => 0.0,
+                'subtotal_amount_converted' => 0.0,
+                'total_discount_amount_converted' => 0.0,
+                'gross_amount_converted' => 0.0,
+                'total_business_expenses_amount_converted' => round((float) ($financialSummary['total_business_expenses_amount'] ?? 0), 2),
+                'deductible_business_expenses_amount_converted' => round((float) ($financialSummary['deductible_business_expenses_amount'] ?? 0), 2),
+                'taxable_amount_converted' => 0.0,
+                'additional_tax_items' => [],
+                'total_tax_before_deductible_expenses_amount_converted' => 0.0,
+                'total_tax_after_deductible_expenses_amount_converted' => 0.0,
+                'tax_savings_from_deductible_expenses_amount_converted' => 0.0,
+                'total_tax_amount_converted' => 0.0,
+                'net_after_tax_amount_converted' => 0.0,
+                'allocation_total_converted' => 0.0,
+                'total_deductions_amount_converted' => 0.0,
+                'net_amount_converted' => 0.0,
             ];
         }
 
@@ -1814,17 +1823,23 @@ class InvoiceController extends Controller
             ->get()
             ->keyBy('invoice_id');
 
-        $groups = [];
         $convertedInvoices = 0;
         $missingRateInvoices = 0;
         $rateCache = [];
+        $billableTimeAmountConverted = 0.0;
+        $totalExpensesAmountConverted = 0.0;
+        $subtotalAmountConverted = 0.0;
+        $totalDiscountAmountConverted = 0.0;
+        $grossAmountConverted = 0.0;
+        $allocationTotalConverted = 0.0;
+        $additionalTaxItemsConverted = [];
 
         foreach ($invoices as $invoice) {
-            $targetCurrency = $this->normalizeCurrencyCode($invoice->conversion_target_currency);
-            $sourceCurrency = $this->normalizeCurrencyCode($invoice->conversion_source_currency);
-            $conversionRate = (float) ($invoice->conversion_rate ?? 0);
+            $sourceCurrency = $this->normalizeCurrencyCode($invoice->conversion_source_currency)
+                ?? $this->normalizeCurrencyCode($invoice->client ? (string) $invoice->client->currency : null);
+            $conversionRate = $this->invoiceConversionRateToTarget($invoice, $sourceCurrency, $targetCurrency, $rateCache);
 
-            if ($targetCurrency === null || $sourceCurrency === null || $conversionRate <= 0) {
+            if ($sourceCurrency === null || $conversionRate === null || $conversionRate <= 0) {
                 $missingRateInvoices++;
                 continue;
             }
@@ -1843,56 +1858,138 @@ class InvoiceController extends Controller
             $additionalTaxes = $this->calculateAdditionalTaxItems($grossAmount, $additionalTaxItems, $sourceCurrency, $rateCache);
             $totalTaxAmount = round($additionalTaxes['tax_total'], 2);
             $allocationTotal = 0.0;
-            $netAfterTaxAmount = round($grossAmount - $totalTaxAmount, 2);
-            $totalDeductionsAmount = round($totalTaxAmount + $allocationTotal, 2);
-            $netAmount = round($netAfterTaxAmount - $allocationTotal, 2);
 
-            if (!array_key_exists($targetCurrency, $groups)) {
-                $groups[$targetCurrency] = [
-                    'target_currency' => $targetCurrency,
-                    'invoice_count' => 0,
-                    'gross_amount_converted' => 0.0,
-                    'total_tax_amount_converted' => 0.0,
-                    'net_after_tax_amount_converted' => 0.0,
-                    'allocation_total_converted' => 0.0,
-                    'total_deductions_amount_converted' => 0.0,
-                    'net_amount_converted' => 0.0,
-                ];
+            foreach ($additionalTaxes['items'] as $item) {
+                $itemKey = (string) ($item['id'] ?? '') . ':' . strtolower((string) ($item['name'] ?? 'additional-charge'));
+
+                if (!array_key_exists($itemKey, $additionalTaxItemsConverted)) {
+                    $additionalTaxItemsConverted[$itemKey] = [
+                        'id' => (int) ($item['id'] ?? 0),
+                        'name' => (string) ($item['name'] ?? 'Additional Charge'),
+                        'category' => (string) ($item['category'] ?? 'tax'),
+                        'value_type' => (string) ($item['value_type'] ?? 'percentage'),
+                        'value' => round((float) ($item['value'] ?? 0), 2),
+                        'currency' => $item['currency'] ? (string) $item['currency'] : null,
+                        'position' => (int) ($item['position'] ?? 0),
+                        'amount' => 0.0,
+                        'amount_currency' => $targetCurrency,
+                    ];
+                }
+
+                $additionalTaxItemsConverted[$itemKey]['amount'] += round((float) ($item['amount'] ?? 0) * $conversionRate, 2);
             }
 
-            $groups[$targetCurrency]['invoice_count'] += 1;
-            $groups[$targetCurrency]['gross_amount_converted'] += round($grossAmount * $conversionRate, 2);
-            $groups[$targetCurrency]['total_tax_amount_converted'] += round($totalTaxAmount * $conversionRate, 2);
-            $groups[$targetCurrency]['net_after_tax_amount_converted'] += round($netAfterTaxAmount * $conversionRate, 2);
-            $groups[$targetCurrency]['allocation_total_converted'] += round($allocationTotal * $conversionRate, 2);
-            $groups[$targetCurrency]['total_deductions_amount_converted'] += round($totalDeductionsAmount * $conversionRate, 2);
-            $groups[$targetCurrency]['net_amount_converted'] += round($netAmount * $conversionRate, 2);
+            $billableTimeAmountConverted += round($billableTimeAmount * $conversionRate, 2);
+            $totalExpensesAmountConverted += round($expensesAmount * $conversionRate, 2);
+            $subtotalAmountConverted += round($subtotalAmount * $conversionRate, 2);
+            $totalDiscountAmountConverted += round($discountAmount * $conversionRate, 2);
+            $grossAmountConverted += round($grossAmount * $conversionRate, 2);
+            $allocationTotalConverted += round($allocationTotal * $conversionRate, 2);
             $convertedInvoices += 1;
         }
 
-        $groupRows = collect($groups)
-            ->sortKeys()
-            ->map(function (array $group): array {
-                return [
-                    'target_currency' => $group['target_currency'],
-                    'invoice_count' => (int) $group['invoice_count'],
-                    'gross_amount_converted' => round((float) $group['gross_amount_converted'], 2),
-                    'total_tax_amount_converted' => round((float) $group['total_tax_amount_converted'], 2),
-                    'net_after_tax_amount_converted' => round((float) $group['net_after_tax_amount_converted'], 2),
-                    'allocation_total_converted' => round((float) $group['allocation_total_converted'], 2),
-                    'total_deductions_amount_converted' => round((float) $group['total_deductions_amount_converted'], 2),
-                    'net_amount_converted' => round((float) $group['net_amount_converted'], 2),
-                ];
+        $totalBusinessExpensesAmountConverted = round((float) ($financialSummary['total_business_expenses_amount'] ?? 0), 2);
+        $deductibleBusinessExpensesAmountConverted = round((float) ($financialSummary['deductible_business_expenses_amount'] ?? 0), 2);
+        $taxableAmountConverted = round(max(0, $grossAmountConverted - $deductibleBusinessExpensesAmountConverted), 2);
+        $taxRateCache = [];
+        $taxesBeforeDeductions = $this->calculateAdditionalTaxItems($grossAmountConverted, $additionalTaxItems, $targetCurrency, $taxRateCache);
+        $taxesAfterDeductions = $this->calculateAdditionalTaxItems($taxableAmountConverted, $additionalTaxItems, $targetCurrency, $taxRateCache);
+        $totalTaxBeforeDeductionsAmountConverted = round((float) ($taxesBeforeDeductions['tax_total'] ?? 0), 2);
+        $totalTaxAfterDeductionsAmountConverted = round((float) ($taxesAfterDeductions['tax_total'] ?? 0), 2);
+        $taxSavingsFromDeductionsAmountConverted = round(max(0, $totalTaxBeforeDeductionsAmountConverted - (float) ($taxesAfterDeductions['tax_total'] ?? 0)), 2);
+        $netAfterTaxAmountConverted = round($grossAmountConverted - $totalTaxAfterDeductionsAmountConverted, 2);
+        $totalDeductionsAmountConverted = round($totalTaxAfterDeductionsAmountConverted + $allocationTotalConverted, 2);
+        $netAmountConverted = round($netAfterTaxAmountConverted - $allocationTotalConverted, 2);
+
+        $normalizedAdditionalTaxItems = collect($additionalTaxItemsConverted)
+            ->map(function (array $item): array {
+                $item['amount'] = round((float) $item['amount'], 2);
+                return $item;
             })
+            ->sortBy([
+                ['position', 'asc'],
+                ['id', 'asc'],
+                ['name', 'asc'],
+            ])
             ->values()
             ->all();
 
         return [
+            'target_currency' => $targetCurrency,
             'total_invoices' => $invoices->count(),
             'converted_invoices' => $convertedInvoices,
             'missing_rate_invoices' => $missingRateInvoices,
-            'groups' => $groupRows,
+            'billable_time_amount_converted' => round($billableTimeAmountConverted, 2),
+            'total_expenses_amount_converted' => round($totalExpensesAmountConverted, 2),
+            'subtotal_amount_converted' => round($subtotalAmountConverted, 2),
+            'total_discount_amount_converted' => round($totalDiscountAmountConverted, 2),
+            'gross_amount_converted' => round($grossAmountConverted, 2),
+            'total_business_expenses_amount_converted' => $totalBusinessExpensesAmountConverted,
+            'deductible_business_expenses_amount_converted' => $deductibleBusinessExpensesAmountConverted,
+            'taxable_amount_converted' => $taxableAmountConverted,
+            'additional_tax_items' => $normalizedAdditionalTaxItems,
+            'total_tax_before_deductible_expenses_amount_converted' => $totalTaxBeforeDeductionsAmountConverted,
+            'total_tax_after_deductible_expenses_amount_converted' => $totalTaxAfterDeductionsAmountConverted,
+            'tax_savings_from_deductible_expenses_amount_converted' => $taxSavingsFromDeductionsAmountConverted,
+            'total_tax_amount_converted' => $totalTaxAfterDeductionsAmountConverted,
+            'net_after_tax_amount_converted' => round($netAfterTaxAmountConverted, 2),
+            'allocation_total_converted' => round($allocationTotalConverted, 2),
+            'total_deductions_amount_converted' => round($totalDeductionsAmountConverted, 2),
+            'net_amount_converted' => round($netAmountConverted, 2),
         ];
+    }
+
+    /**
+     * @param array<string, float|null> $rateCache
+     */
+    private function invoiceConversionRateToTarget(Invoice $invoice, ?string $sourceCurrency, string $targetCurrency, array &$rateCache): ?float
+    {
+        if ($sourceCurrency === null) {
+            return null;
+        }
+
+        if ($sourceCurrency === $targetCurrency) {
+            return 1.0;
+        }
+
+        $storedTarget = $this->normalizeCurrencyCode($invoice->conversion_target_currency);
+        $storedRate = (float) ($invoice->conversion_rate ?? 0);
+
+        if ($storedRate > 0 && $storedTarget === $targetCurrency) {
+            return $storedRate;
+        }
+
+        return $this->resolveCurrencyRateOrNull($sourceCurrency, $targetCurrency, $rateCache);
+    }
+
+    /**
+     * @param array<string, float|null> $rateCache
+     */
+    private function resolveCurrencyRateOrNull(string $sourceCurrency, string $targetCurrency, array &$rateCache): ?float
+    {
+        if ($sourceCurrency === $targetCurrency) {
+            return 1.0;
+        }
+
+        $cacheKey = $sourceCurrency . ':' . $targetCurrency;
+
+        if (array_key_exists($cacheKey, $rateCache)) {
+            $cachedRate = $rateCache[$cacheKey];
+
+            return $cachedRate !== null ? (float) $cachedRate : null;
+        }
+
+        $liveRate = $this->fetchWiseLiveRate($sourceCurrency, $targetCurrency);
+
+        if ($liveRate === null) {
+            $rateCache[$cacheKey] = null;
+            return null;
+        }
+
+        $resolvedRate = (float) $liveRate['rate'];
+        $rateCache[$cacheKey] = $resolvedRate;
+
+        return $resolvedRate > 0 ? $resolvedRate : null;
     }
 
     private function findOrCreateFinancialYearForUser(int $userId, int $startYear): FinancialYear

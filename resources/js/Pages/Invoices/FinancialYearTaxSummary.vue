@@ -24,23 +24,41 @@ const props = defineProps({
         type: Object,
         required: true,
     },
-    taxSummary: {
-        type: Object,
-        required: true,
-    },
     convertedTaxSummary: {
         type: Object,
         default: () => ({
+            target_currency: 'USD',
             total_invoices: 0,
             converted_invoices: 0,
             missing_rate_invoices: 0,
-            groups: [],
+            billable_time_amount_converted: 0,
+            total_expenses_amount_converted: 0,
+            subtotal_amount_converted: 0,
+            total_discount_amount_converted: 0,
+            gross_amount_converted: 0,
+            total_business_expenses_amount_converted: 0,
+            deductible_business_expenses_amount_converted: 0,
+            taxable_amount_converted: 0,
+            additional_tax_items: [],
+            total_tax_before_deductible_expenses_amount_converted: 0,
+            total_tax_after_deductible_expenses_amount_converted: 0,
+            tax_savings_from_deductible_expenses_amount_converted: 0,
+            total_tax_amount_converted: 0,
+            net_after_tax_amount_converted: 0,
+            allocation_total_converted: 0,
+            total_deductions_amount_converted: 0,
+            net_amount_converted: 0,
         }),
     },
 });
 
+const convertedTaxCurrency = computed(() => {
+    const code = String(props?.convertedTaxSummary?.target_currency || 'USD').toUpperCase();
+    return /^[A-Z]{3}$/.test(code) ? code : 'USD';
+});
+
 const taxAndLevyItems = computed(() =>
-    (props?.taxSummary?.additional_tax_items || []).filter((item) =>
+    (props?.convertedTaxSummary?.additional_tax_items || []).filter((item) =>
         String(item?.category || '').toLowerCase() !== 'allocation'
     )
 );
@@ -72,7 +90,7 @@ function formatAdditionalTaxValue(item) {
         return formatPercent(item?.value || 0);
     }
 
-    const code = String(item?.currency || props?.taxSummary?.currency || 'USD').toUpperCase();
+    const code = String(item?.currency || convertedTaxCurrency.value || 'USD').toUpperCase();
 
     return formatCurrency(item?.value || 0, code);
 }
@@ -177,75 +195,10 @@ function openFinancialYear(startYear) {
                 </div>
 
                 <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Tax Calculation</h2>
-
-                    <div class="mt-5 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
-                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Subtotal</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.subtotal_amount || taxSummary.gross_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Discount</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">-{{ formatCurrency(summary.total_discount_amount || 0) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Billable Time</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.billable_time_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Line Items</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.total_expenses_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Gross Amount</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.gross_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Business Expenses</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.total_business_expenses_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Tax Deductible Business Expenses</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">{{ formatCurrency(taxSummary.deductible_business_expenses_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Taxable Amount</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.taxable_amount) }}</td>
-                                </tr>
-                                <tr
-                                    v-for="(item, index) in taxAndLevyItems"
-                                    :key="`financial-year-additional-tax-item-${item.id ?? 'new'}-${index}`"
-                                >
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">
-                                        {{ item.name }}
-                                        <span class="text-xs text-gray-500 dark:text-gray-400">({{ formatCategory(item.category) }} • {{ formatAdditionalTaxValue(item) }})</span>
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(item.amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Tax</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(taxSummary.total_tax_after_deductible_expenses_amount || taxSummary.total_tax_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Tax Savings From Deductible Expenses</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">{{ formatCurrency(taxSummary.tax_savings_from_deductible_expenses_amount) }}</td>
-                                </tr>
-                                <tr class="bg-emerald-50 dark:bg-emerald-900/20">
-                                    <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Net Profit After Tax</td>
-                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(taxSummary.net_after_tax_amount) }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Converted Totals (Stored Invoice Rates)</h2>
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Tax Calculation ({{ convertedTaxCurrency }})</h2>
 
                     <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                        Amalgamated from each invoice using the conversion rate recorded on that invoice at finalization time.
+                        Amalgamated from each invoice in its own source currency, then converted to your country currency.
                     </p>
 
                     <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -263,33 +216,93 @@ function openFinancialYear(startYear) {
                         </div>
                     </div>
 
-                    <div v-if="(convertedTaxSummary.groups || []).length > 0" class="mt-5 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div class="mt-5 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
                         <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-                            <thead class="bg-gray-50 dark:bg-gray-800/60">
-                                <tr>
-                                    <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">Target Currency</th>
-                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Invoices</th>
-                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Gross Amount</th>
-                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Total Tax</th>
-                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Net After Tax</th>
-                                    <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Total After Tax</th>
-                                </tr>
-                            </thead>
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                <tr v-for="group in convertedTaxSummary.groups" :key="group.target_currency">
-                                    <td class="px-4 py-3 font-semibold text-gray-900 dark:text-white">{{ group.target_currency }}</td>
-                                    <td class="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{{ group.invoice_count }}</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(group.gross_amount_converted, group.target_currency) }}</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(group.total_tax_amount_converted, group.target_currency) }}</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(group.net_after_tax_amount_converted, group.target_currency) }}</td>
-                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(group.net_amount_converted, group.target_currency) }}</td>
+                                <tr class="bg-gray-50 dark:bg-gray-800/60">
+                                    <td colspan="2" class="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Revenue</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Subtotal</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertedTaxSummary.subtotal_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Discount</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">-{{ formatCurrency(convertedTaxSummary.total_discount_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Billable Time</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertedTaxSummary.billable_time_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Line Items</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertedTaxSummary.total_expenses_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Gross Amount</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertedTaxSummary.gross_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr class="bg-gray-50 dark:bg-gray-800/60">
+                                    <td colspan="2" class="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Business Expenses</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Business Expenses</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertedTaxSummary.total_business_expenses_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Tax Deductible Business Expenses</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">{{ formatCurrency(convertedTaxSummary.deductible_business_expenses_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Taxable Amount</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertedTaxSummary.taxable_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr class="bg-gray-50 dark:bg-gray-800/60">
+                                    <td colspan="2" class="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Taxes</td>
+                                </tr>
+                                <tr
+                                    v-for="(item, index) in taxAndLevyItems"
+                                    :key="`financial-year-additional-tax-item-${item.id ?? 'new'}-${index}`"
+                                >
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">
+                                        {{ item.name }}
+                                        <span class="text-xs text-gray-500 dark:text-gray-400">({{ formatCategory(item.category) }} • {{ formatAdditionalTaxValue(item) }})</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(item.amount, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Tax Before Deductible Expenses</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(convertedTaxSummary.total_tax_before_deductible_expenses_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Tax Savings From Deductible Expenses</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">{{ formatCurrency(convertedTaxSummary.tax_savings_from_deductible_expenses_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Tax (After Deductible Expenses)</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(convertedTaxSummary.total_tax_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr class="bg-gray-50 dark:bg-gray-800/60">
+                                    <td colspan="2" class="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Net</td>
+                                </tr>
+                                <tr class="bg-emerald-50 dark:bg-emerald-900/20">
+                                    <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Net Profit After Tax</td>
+                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(convertedTaxSummary.net_after_tax_amount_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Allocations (Deductions)</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-amber-700 dark:text-amber-300">{{ formatCurrency(convertedTaxSummary.allocation_total_converted, convertedTaxCurrency) }}</td>
+                                </tr>
+                                <tr class="bg-emerald-50 dark:bg-emerald-900/20">
+                                    <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Total After Allocations</td>
+                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(convertedTaxSummary.net_amount_converted, convertedTaxCurrency) }}</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
 
-                    <p v-else class="mt-5 text-sm text-amber-700 dark:text-amber-300">
-                        No invoices in this financial year have a stored conversion snapshot yet.
+                    <p v-if="convertedTaxSummary.converted_invoices === 0" class="mt-5 text-sm text-amber-700 dark:text-amber-300">
+                        No invoices in this financial year could be converted to your country currency yet.
                     </p>
                 </div>
             </div>

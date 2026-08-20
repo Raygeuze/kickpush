@@ -33,10 +33,12 @@ const baseTaxCurrency = computed(() => {
     return /^[A-Z]{3}$/.test(code) ? code : invoiceCurrency.value;
 });
 
-const convertedTaxCurrency = computed(() => {
+const desiredTaxCurrency = computed(() => {
     const code = String(props?.currencyConversion?.target_currency || '').toUpperCase();
-    return /^[A-Z]{3}$/.test(code) ? code : null;
+    return /^[A-Z]{3}$/.test(code) ? code : baseTaxCurrency.value;
 });
+
+const canRenderConvertedSummary = computed(() => Boolean(props?.currencyConversion?.available));
 
 const taxAndLevyItems = computed(() =>
     (props?.taxSummary?.additional_tax_items || []).filter((item) =>
@@ -50,42 +52,28 @@ const allocationItems = computed(() =>
     )
 );
 
-const baseAllocationItems = computed(() => {
+const displayAllocationItems = computed(() => {
     if (!showAllocations.value) {
         return [];
     }
 
-    return allocationItems.value.filter((item) => {
-        const itemCurrency = normalizeCurrencyCode(item?.currency) || baseTaxCurrency.value;
-        return itemCurrency === baseTaxCurrency.value;
-    });
+    return allocationItems.value;
 });
 
-const convertedAllocationItems = computed(() => {
-    if (!showAllocations.value || !convertedTaxCurrency.value) {
-        return [];
+const displayAllocationTotal = computed(() =>
+    roundCurrency(displayAllocationItems.value.reduce((carry, item) => carry + convertedAmount(item?.amount || 0), 0))
+);
+
+const displayNetAfterTax = computed(() => {
+    if (!canRenderConvertedSummary.value) {
+        return 0;
     }
 
-    return allocationItems.value.filter((item) => {
-        const itemCurrency = normalizeCurrencyCode(item?.currency) || baseTaxCurrency.value;
-        return itemCurrency === convertedTaxCurrency.value;
-    });
+    return roundCurrency(Number(props?.currencyConversion?.net_after_tax_amount_converted || 0));
 });
 
-const baseAllocationTotal = computed(() =>
-    roundCurrency(baseAllocationItems.value.reduce((carry, item) => carry + Number(item?.amount || 0), 0))
-);
-
-const convertedAllocationTotal = computed(() =>
-    roundCurrency(convertedAllocationItems.value.reduce((carry, item) => carry + allocationAmountForConvertedTable(item), 0))
-);
-
-const baseNetAfterAllocations = computed(() =>
-    roundCurrency(Number(props?.taxSummary?.net_after_tax_amount || 0) - baseAllocationTotal.value)
-);
-
-const convertedNetAfterAllocations = computed(() =>
-    roundCurrency(Number(props?.currencyConversion?.net_after_tax_amount_converted || 0) - convertedAllocationTotal.value)
+const displayNetAfterAllocations = computed(() =>
+    roundCurrency(displayNetAfterTax.value - displayAllocationTotal.value)
 );
 
 function formatInvoiceId(invoiceId) {
@@ -163,35 +151,19 @@ function formatRate(value) {
     return rate > 0 ? rate.toFixed(6) : '-';
 }
 
-function normalizeCurrencyCode(value) {
-    const code = String(value || '').toUpperCase();
-    return /^[A-Z]{3}$/.test(code) ? code : null;
-}
-
 function roundCurrency(value) {
     return Math.round(Number(value || 0) * 100) / 100;
 }
 
-function convertAmount(amount) {
+function convertedAmount(amount) {
     const value = Number(amount || 0);
     const rate = Number(props?.currencyConversion?.rate || 0);
 
-    if (rate <= 0) {
-        return value;
+    if (!canRenderConvertedSummary.value || rate <= 0) {
+        return 0;
     }
 
-    return value * rate;
-}
-
-function allocationAmountForConvertedTable(item) {
-    const fixedValue = Number(item?.value || 0);
-    const valueType = String(item?.value_type || '').toLowerCase();
-
-    if (valueType === 'fixed') {
-        return fixedValue;
-    }
-
-    return Number(convertAmount(item?.amount || 0));
+    return roundCurrency(value * rate);
 }
 </script>
 
@@ -222,66 +194,7 @@ function allocationAmountForConvertedTable(item) {
                 </div>
 
                 <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Tax Calculation</h2>
-
-                    <div class="mt-5 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
-                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Subtotal</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.subtotal_amount || taxSummary.gross_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Discount</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">-{{ formatCurrency(summary.discount_amount || 0) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Gross Invoice Amount</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(taxSummary.gross_amount) }}</td>
-                                </tr>
-                                <tr
-                                    v-for="(item, index) in taxAndLevyItems"
-                                    :key="`additional-tax-item-${item.id ?? 'new'}-${index}`"
-                                >
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">
-                                        {{ item.name }}
-                                        <span class="text-xs text-gray-500 dark:text-gray-400">({{ formatCategory(item.category) }} • {{ formatAdditionalTaxValue(item) }})</span>
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(item.amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Tax</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(taxSummary.total_tax_amount) }}</td>
-                                </tr>
-                                <tr class="bg-emerald-50 dark:bg-emerald-900/20">
-                                    <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Net Profit After Tax</td>
-                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(taxSummary.net_after_tax_amount) }}</td>
-                                </tr>
-                                <tr
-                                    v-for="(item, index) in baseAllocationItems"
-                                    :key="`allocation-item-${item.id ?? 'new'}-${index}`"
-                                >
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">
-                                        {{ item.name }}
-                                        <span class="text-xs text-gray-500 dark:text-gray-400">(Use of net profit • {{ formatAdditionalTaxValue(item) }})</span>
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-semibold text-amber-700 dark:text-amber-300">{{ formatCurrency(item.amount) }}</td>
-                                </tr>
-                                <tr v-if="baseAllocationItems.length > 0" class="bg-amber-50 dark:bg-amber-900/20">
-                                    <td class="px-4 py-3 text-amber-800 dark:text-amber-200 font-semibold">Total Allocations (Deductions)</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-amber-800 dark:text-amber-200">{{ formatCurrency(baseAllocationTotal) }}</td>
-                                </tr>
-                                <tr v-if="baseAllocationItems.length > 0" class="bg-emerald-50 dark:bg-emerald-900/20">
-                                    <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Total After Allocations</td>
-                                    <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(baseNetAfterAllocations) }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Live Currency Conversion (Wise)</h2>
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Tax Calculation ({{ desiredTaxCurrency }})</h2>
 
                     <div v-if="currencyConversion && currencyConversion.available" class="mt-5 space-y-4">
                         <p class="text-sm text-gray-600 dark:text-gray-300">
@@ -300,17 +213,23 @@ function allocationAmountForConvertedTable(item) {
                         <div class="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
                             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
                                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    <tr class="bg-gray-50 dark:bg-gray-800/60">
+                                        <td colspan="2" class="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Revenue</td>
+                                    </tr>
                                     <tr>
                                         <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Subtotal</td>
-                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertAmount(summary.subtotal_amount || taxSummary.gross_amount), currencyConversion.target_currency) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertedAmount(summary.subtotal_amount || taxSummary.gross_amount), currencyConversion.target_currency) }}</td>
                                     </tr>
                                     <tr>
                                         <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Discount</td>
-                                        <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">-{{ formatCurrency(convertAmount(summary.discount_amount || 0), currencyConversion.target_currency) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">-{{ formatCurrency(convertedAmount(summary.discount_amount || 0), currencyConversion.target_currency) }}</td>
                                     </tr>
                                     <tr>
                                         <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Gross Invoice Amount</td>
                                         <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(currencyConversion.gross_amount_converted, currencyConversion.target_currency) }}</td>
+                                    </tr>
+                                    <tr class="bg-gray-50 dark:bg-gray-800/60">
+                                        <td colspan="2" class="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Taxes</td>
                                     </tr>
                                     <tr
                                         v-for="(item, index) in taxAndLevyItems"
@@ -320,33 +239,39 @@ function allocationAmountForConvertedTable(item) {
                                             {{ item.name }}
                                             <span class="text-xs text-gray-500 dark:text-gray-400">({{ formatCategory(item.category) }} • {{ formatAdditionalTaxValue(item) }})</span>
                                         </td>
-                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertAmount(item.amount), currencyConversion.target_currency) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(convertedAmount(item.amount), currencyConversion.target_currency) }}</td>
                                     </tr>
                                     <tr>
                                         <td class="px-4 py-3 text-gray-600 dark:text-gray-300">Total Tax</td>
                                         <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">{{ formatCurrency(currencyConversion.total_tax_amount_converted, currencyConversion.target_currency) }}</td>
                                     </tr>
+                                    <tr class="bg-gray-50 dark:bg-gray-800/60">
+                                        <td colspan="2" class="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Net</td>
+                                    </tr>
                                     <tr class="bg-emerald-50 dark:bg-emerald-900/20">
                                         <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Net Profit After Tax</td>
-                                        <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(currencyConversion.net_after_tax_amount_converted, currencyConversion.target_currency) }}</td>
+                                        <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(displayNetAfterTax, currencyConversion.target_currency) }}</td>
+                                    </tr>
+                                    <tr v-if="displayAllocationItems.length > 0" class="bg-gray-50 dark:bg-gray-800/60">
+                                        <td colspan="2" class="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Allocations</td>
                                     </tr>
                                     <tr
-                                        v-for="(item, index) in convertedAllocationItems"
+                                        v-for="(item, index) in displayAllocationItems"
                                         :key="`converted-allocation-item-${item.id ?? 'new'}-${index}`"
                                     >
                                         <td class="px-4 py-3 text-gray-600 dark:text-gray-300">
                                             {{ item.name }}
                                             <span class="text-xs text-gray-500 dark:text-gray-400">(Use of net profit • {{ formatAdditionalTaxValue(item) }})</span>
                                         </td>
-                                        <td class="px-4 py-3 text-right font-semibold text-amber-700 dark:text-amber-300">{{ formatCurrency(allocationAmountForConvertedTable(item), currencyConversion.target_currency) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-amber-700 dark:text-amber-300">{{ formatCurrency(convertedAmount(item.amount), currencyConversion.target_currency) }}</td>
                                     </tr>
-                                    <tr v-if="convertedAllocationItems.length > 0" class="bg-amber-50 dark:bg-amber-900/20">
+                                    <tr v-if="displayAllocationItems.length > 0" class="bg-amber-50 dark:bg-amber-900/20">
                                         <td class="px-4 py-3 text-amber-800 dark:text-amber-200 font-semibold">Total Allocations (Deductions)</td>
-                                        <td class="px-4 py-3 text-right font-semibold text-amber-800 dark:text-amber-200">{{ formatCurrency(convertedAllocationTotal, currencyConversion.target_currency) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-amber-800 dark:text-amber-200">{{ formatCurrency(displayAllocationTotal, currencyConversion.target_currency) }}</td>
                                     </tr>
-                                    <tr v-if="convertedAllocationItems.length > 0" class="bg-emerald-50 dark:bg-emerald-900/20">
+                                    <tr v-if="displayAllocationItems.length > 0" class="bg-emerald-50 dark:bg-emerald-900/20">
                                         <td class="px-4 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">Total After Allocations</td>
-                                        <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(convertedNetAfterAllocations, currencyConversion.target_currency) }}</td>
+                                        <td class="px-4 py-3 text-right font-bold text-emerald-800 dark:text-emerald-200">{{ formatCurrency(displayNetAfterAllocations, currencyConversion.target_currency) }}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -358,7 +283,7 @@ function allocationAmountForConvertedTable(item) {
                     </div>
 
                     <p v-else class="mt-5 text-sm text-amber-700 dark:text-amber-300">
-                        {{ currencyConversion?.message || 'Live conversion is temporarily unavailable.' }}
+                        {{ currencyConversion?.message || 'Conversion to your country currency is temporarily unavailable.' }}
                     </p>
                 </div>
             </div>
