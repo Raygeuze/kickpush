@@ -38,6 +38,8 @@ const desiredTaxCurrency = computed(() => {
     return /^[A-Z]{3}$/.test(code) ? code : baseTaxCurrency.value;
 });
 
+const currencyConversion = computed(() => props?.currencyConversion || null);
+
 const canRenderConvertedSummary = computed(() => Boolean(props?.currencyConversion?.available));
 
 const taxAndLevyItems = computed(() =>
@@ -75,6 +77,21 @@ const displayNetAfterTax = computed(() => {
 const displayNetAfterAllocations = computed(() =>
     roundCurrency(displayNetAfterTax.value - displayAllocationTotal.value)
 );
+
+const projectTotals = computed(() => {
+    const totals = props?.summary?.project_totals;
+    return Array.isArray(totals) ? totals : [];
+});
+
+function formatProjectBillableAmount(project) {
+    const amount = Number(project?.billable_time_amount || 0);
+
+    if (canRenderConvertedSummary.value) {
+        return formatCurrency(convertedAmount(amount), currencyConversion.value?.target_currency || desiredTaxCurrency.value);
+    }
+
+    return formatCurrency(amount, invoiceCurrency.value);
+}
 
 function formatInvoiceId(invoiceId) {
     return `INV${invoiceId}`;
@@ -195,6 +212,30 @@ function convertedAmount(amount) {
 
                 <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
                     <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Tax Calculation ({{ desiredTaxCurrency }})</h2>
+
+                    <div v-if="projectTotals.length > 0" class="mt-4 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                            <thead class="bg-gray-50 dark:bg-gray-800/60">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Project</th>
+                                    <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Sessions</th>
+                                    <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Tracked Time</th>
+                                    <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Billable Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                <tr
+                                    v-for="project in projectTotals"
+                                    :key="`tax-summary-project-total-${project.project_id ?? 'unassigned'}-${project.project_name}`"
+                                >
+                                    <td class="px-4 py-3 text-gray-700 dark:text-gray-200">{{ project.project_name || 'Unassigned Project' }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ Number(project.sessions_count || 0) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatDuration(project.total_duration_seconds || 0) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatProjectBillableAmount(project) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
 
                     <div v-if="currencyConversion && currencyConversion.available" class="mt-5 space-y-4">
                         <p class="text-sm text-gray-600 dark:text-gray-300">

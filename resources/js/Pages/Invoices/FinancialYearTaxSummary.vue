@@ -48,6 +48,7 @@ const props = defineProps({
             allocation_total_converted: 0,
             total_deductions_amount_converted: 0,
             net_amount_converted: 0,
+            project_totals_converted: [],
         }),
     },
 });
@@ -62,6 +63,11 @@ const taxAndLevyItems = computed(() =>
         String(item?.category || '').toLowerCase() !== 'allocation'
     )
 );
+
+const projectTotals = computed(() => {
+    const totals = props?.convertedTaxSummary?.project_totals_converted;
+    return Array.isArray(totals) ? totals : [];
+});
 
 function formatCurrency(amount, currencyCode = 'USD') {
     const value = Number(amount || 0);
@@ -191,6 +197,38 @@ function openFinancialYear(startYear) {
                             <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Tracked Time</p>
                             <p class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">{{ formatDuration(summary.total_duration_seconds) }}</p>
                         </div>
+                    </div>
+
+                    <div class="mt-5">
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Per Project Totals</h3>
+
+                        <div v-if="projectTotals.length > 0" class="mt-3 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                                <thead class="bg-gray-50 dark:bg-gray-800/60">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Project</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Sessions</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Tracked Time</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Billable Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    <tr
+                                        v-for="project in projectTotals"
+                                        :key="`fy-year-summary-project-total-${project.project_id ?? 'unassigned'}-${project.project_name}`"
+                                    >
+                                        <td class="px-4 py-3 text-gray-700 dark:text-gray-200">{{ project.project_name || 'Unassigned Project' }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ Number(project.sessions_count || 0) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatDuration(project.total_duration_seconds || 0) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(project.billable_time_amount_converted || 0, convertedTaxCurrency) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p v-else class="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                            No paid invoice sessions were found for this financial year, so there are no per-project totals yet.
+                        </p>
                     </div>
                 </div>
 

@@ -59,7 +59,9 @@ const isSavingDiscount = ref(false);
 const savingSessionDateIds = ref([]);
 const savingSessionDurationIds = ref([]);
 const savingSessionTaskIds = ref([]);
+const savingSessionDetailsIds = ref([]);
 const editingSessionDurationId = ref(null);
+const editingSessionDetailsId = ref(null);
 const sessionDateDrafts = ref(
     Object.fromEntries(
         (props.assignedSessions || []).map((session) => {
@@ -88,6 +90,11 @@ const sessionTaskDrafts = ref(
         (props.assignedSessions || []).map((session) => [session.id, session?.task_id ? String(session.task_id) : ''])
     )
 );
+const sessionProjectDrafts = ref(
+    Object.fromEntries(
+        (props.assignedSessions || []).map((session) => [session.id, session?.task?.project_id ? String(session.task.project_id) : ''])
+    )
+);
 const isInlineTimerRunning = ref(false);
 const isInlineTimerPaused = ref(false);
 const inlineElapsedSeconds = ref(0);
@@ -102,6 +109,7 @@ const selectedManualProjectId = ref('');
 const selectedManualTaskId = ref('');
 const discountType = ref(invoice.value?.discount_type || '');
 const discountValue = ref(Number(invoice.value?.discount_value ?? 0));
+const expandedProjectSections = ref({});
 
 function formatTaskOption(task) {
     if (!task) {
@@ -264,6 +272,65 @@ const sortedAssignedSessions = computed(() => {
         return bDate - aDate;
     });
 });
+const assignedSessionsByProject = computed(() => {
+    const groups = new Map();
+
+    sortedAssignedSessions.value.forEach((session) => {
+        const projectId = session?.task?.project?.id ?? session?.task?.project_id ?? null;
+        const projectName = session?.task?.project?.name || 'Unassigned Project';
+        const key = projectId ? `project-${projectId}` : 'project-unassigned';
+
+        if (!groups.has(key)) {
+            groups.set(key, {
+                key,
+                projectId,
+                projectName,
+                sessions: [],
+            });
+        }
+
+        groups.get(key).sessions.push(session);
+    });
+
+    return Array.from(groups.values());
+});
+
+function isProjectSectionExpanded(projectKey) {
+    return expandedProjectSections.value[projectKey] === true;
+}
+
+function toggleProjectSection(projectKey) {
+    expandedProjectSections.value = {
+        ...expandedProjectSections.value,
+        [projectKey]: !isProjectSectionExpanded(projectKey),
+    };
+}
+
+function visibleSessionsForProject(section) {
+    if (isProjectSectionExpanded(section.key)) {
+        return section.sessions;
+    }
+
+    return section.sessions.slice(0, 2);
+}
+
+function hasMoreSessionsForProject(section) {
+    return section.sessions.length > 2;
+}
+
+function hiddenSessionsCountForProject(section) {
+    return Math.max(0, section.sessions.length - 2);
+}
+
+function totalDurationSecondsForProject(section) {
+    return (section.sessions || []).reduce((total, session) => {
+        if (inlineActiveSessionId.value === session?.id) {
+            return total + Math.max(0, Number(inlineElapsedSeconds.value || 0));
+        }
+
+        return total + Math.max(0, Number(session?.duration_seconds || 0));
+    }, 0);
+}
 
 function formatInvoiceId(invoiceId) {
     return `INV${invoiceId}`;
@@ -371,6 +438,9 @@ function applyPayload(data) {
     sessionTaskDrafts.value = Object.fromEntries(
         assignedSessions.value.map((session) => [session.id, session?.task_id ? String(session.task_id) : ''])
     );
+    sessionProjectDrafts.value = Object.fromEntries(
+        assignedSessions.value.map((session) => [session.id, session?.task?.project_id ? String(session.task.project_id) : ''])
+    );
     if (Array.isArray(data.client_tasks)) {
         clientTasks.value = data.client_tasks;
     }
@@ -400,6 +470,16 @@ function applyPayload(data) {
 
         if (!sessionStillPresent) {
             editingSessionDurationId.value = null;
+        }
+    }
+
+    if (editingSessionDetailsId.value !== null) {
+        const sessionStillPresent = assignedSessions.value.some(
+            (session) => session.id === editingSessionDetailsId.value
+        );
+
+        if (!sessionStillPresent) {
+            editingSessionDetailsId.value = null;
         }
     }
 }
@@ -441,6 +521,14 @@ function isSavingSessionTask(sessionId) {
     return savingSessionTaskIds.value.includes(sessionId);
 }
 
+function isSavingSessionDetails(sessionId) {
+    return savingSessionDetailsIds.value.includes(sessionId);
+}
+
+function isEditingSessionDetails(sessionId) {
+    return editingSessionDetailsId.value === sessionId;
+}
+
 function isSessionStopped(session) {
     return Boolean(session?.stopped_at);
 }
@@ -478,6 +566,43 @@ function getSessionTaskDraft(session) {
     const draft = sessionTaskDrafts.value[session.id];
 
     return draft === undefined ? (session?.task_id ? String(session.task_id) : '') : draft;
+}
+
+function getSessionProjectDraft(session) {
+    const draft = sessionProjectDrafts.value[session.id];
+
+    if (draft !== undefined && draft !== null && draft !== '') {
+        return String(draft);
+    }
+
+    if (session?.task?.project_id) {
+        return String(session.task.project_id);
+    }
+
+    return clientProjects.value[0]?.id ? String(clientProjects.value[0].id) : '';
+}
+
+function sessionEditTasksForProject(session) {
+    return tasksForProject(getSessionProjectDraft(session));
+}
+
+function syncSessionTaskDraftForProject(session) {
+    const projectId = getSessionProjectDraft(session);
+
+    if (!projectId) {
+        sessionTaskDrafts.value[session.id] = '';
+        return;
+    }
+
+    const currentTaskId = getSessionTaskDraft(session);
+    const availableTasks = tasksForProject(projectId);
+    const currentExists = availableTasks.some((task) => String(task.id) === String(currentTaskId));
+
+    if (currentExists) {
+        return;
+    }
+
+    sessionTaskDrafts.value[session.id] = getDefaultTaskIdForProject(projectId);
 }
 
 function parseDurationHms(value) {
@@ -522,6 +647,91 @@ function cancelEditingSessionDuration(session) {
     }
 
     sessionDurationDrafts.value[session.id] = getSessionDurationHms(session);
+}
+
+function startEditingSessionDetails(session) {
+    if (isFinalized.value || isSavingSessionDetails(session.id)) {
+        return;
+    }
+
+    editingSessionDetailsId.value = session.id;
+    sessionProjectDrafts.value[session.id] = session?.task?.project_id
+        ? String(session.task.project_id)
+        : (clientProjects.value[0]?.id ? String(clientProjects.value[0].id) : '');
+    sessionTaskDrafts.value[session.id] = session?.task_id ? String(session.task_id) : '';
+    sessionDateDrafts.value[session.id] = getSessionDate(session);
+    syncSessionTaskDraftForProject(session);
+}
+
+function cancelEditingSessionDetails(session) {
+    if (isSavingSessionDetails(session.id)) {
+        return;
+    }
+
+    if (editingSessionDetailsId.value === session.id) {
+        editingSessionDetailsId.value = null;
+    }
+
+    sessionProjectDrafts.value[session.id] = session?.task?.project_id ? String(session.task.project_id) : '';
+    sessionTaskDrafts.value[session.id] = session?.task_id ? String(session.task_id) : '';
+    sessionDateDrafts.value[session.id] = getSessionDate(session);
+}
+
+async function saveSessionDetails(session) {
+    if (isFinalized.value || isSavingSessionDetails(session.id)) {
+        return;
+    }
+
+    if (!hasActiveClientTasks.value) {
+        statusMessage.value = 'Create at least one active task for this client before updating session details.';
+        return;
+    }
+
+    const taskId = getSessionTaskDraft(session);
+
+    if (!taskId) {
+        statusMessage.value = 'Select a task before saving.';
+        return;
+    }
+
+    const sessionDate = getSessionDateDraft(session);
+
+    if (isSessionStopped(session) && !sessionDate) {
+        statusMessage.value = 'Select a date before saving.';
+        return;
+    }
+
+    savingSessionDetailsIds.value.push(session.id);
+
+    try {
+        let payload = null;
+
+        if (isSessionStopped(session)) {
+            const dateResponse = await axios.post(`/invoices/${invoice.value.id}/sessions/${session.id}/date`, {
+                session_date: sessionDate,
+            });
+
+            payload = dateResponse.data;
+        }
+
+        const taskResponse = await axios.post(`/invoices/${invoice.value.id}/sessions/${session.id}/task`, {
+            project_id: Number(getSessionProjectDraft(session)),
+            task_id: Number(taskId),
+        });
+
+        payload = taskResponse.data;
+
+        if (payload) {
+            applyPayload(payload);
+        }
+
+        editingSessionDetailsId.value = null;
+        statusMessage.value = 'Session details updated.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to update session details.';
+    } finally {
+        savingSessionDetailsIds.value = savingSessionDetailsIds.value.filter((id) => id !== session.id);
+    }
 }
 
 async function updateSessionDate(session) {
@@ -1360,149 +1570,219 @@ onBeforeUnmount(() => {
                         No sessions assigned yet.
                     </p>
 
-                    <div v-else class="mt-4 space-y-3">
-                        <div
-                            v-for="session in sortedAssignedSessions"
-                            :key="session.id"
-                            class="rounded-xl border border-gray-200 dark:border-gray-700 p-4"
+                    <div v-else class="mt-4 space-y-5">
+                        <section
+                            v-for="section in assignedSessionsByProject"
+                            :key="section.key"
+                            class="rounded-xl border border-gray-200 dark:border-gray-700 p-3"
                         >
-                            <div class="flex flex-wrap items-center justify-between gap-3">
-                                <div>
-                                    <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatSessionHeaderDate(session.started_at || session.created_at) }}</p>
-                                    <p class="text-xs text-gray-600 dark:text-gray-300">Started: {{ formatDateTime(session.started_at) }}</p>
-                                    <p class="text-xs text-gray-600 dark:text-gray-300">Stopped: {{ formatDateTime(session.stopped_at) }}</p>
-                                    <p class="text-xs text-gray-600 dark:text-gray-300">Task: {{ session.task?.name || 'General' }}<span v-if="session.task?.project"> in {{ session.task.project.name }}</span></p>
-                                    <div class="mt-2 flex flex-wrap items-center gap-2">
-                                        <select
-                                            v-model="sessionTaskDrafts[session.id]"
-                                            class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
-                                            :disabled="isFinalized || isSavingSessionTask(session.id) || !hasActiveClientTasks"
-                                        >
-                                            <option value="">Select task</option>
-                                            <option
-                                                v-for="task in clientTasks"
-                                                :key="task.id"
-                                                :value="String(task.id)"
+                            <div class="flex items-center justify-between gap-3">
+                                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ section.projectName }}</h3>
+                                <p class="text-xs font-medium text-gray-600 dark:text-gray-300">
+                                    Total: {{ formatDuration(totalDurationSecondsForProject(section)) }}
+                                </p>
+                            </div>
+
+                            <div class="mt-3 space-y-3">
+                                <div
+                                    v-for="session in visibleSessionsForProject(section)"
+                                    :key="session.id"
+                                    class="rounded-xl border border-gray-200 dark:border-gray-700 p-4"
+                                >
+                                    <div class="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatSessionHeaderDate(session.started_at || session.created_at) }}</p>
+                                            <template v-if="!isEditingSessionDetails(session.id)">
+                                                <div class="mt-1 flex flex-wrap items-center gap-2">
+                                                    <p class="text-xs text-gray-600 dark:text-gray-300">{{ session.task?.name || 'General' }}<span v-if="session.task?.project"> in {{ session.task.project.name }}</span></p>
+                                                    <button
+                                                        type="button"
+                                                        class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                                                        :disabled="isFinalized || isSavingSessionDetails(session.id)"
+                                                        title="Edit session details"
+                                                        aria-label="Edit session details"
+                                                        @click="startEditingSessionDetails(session)"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                            <path d="M12 20h9" />
+                                                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </template>
+
+                                            <template v-else>
+                                                <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                    <div>
+                                                        <label class="text-[11px] font-medium text-gray-600 dark:text-gray-300">Project</label>
+                                                        <select
+                                                            v-model="sessionProjectDrafts[session.id]"
+                                                            class="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
+                                                            :disabled="isFinalized || isSavingSessionDetails(session.id)"
+                                                            @change="syncSessionTaskDraftForProject(session)"
+                                                        >
+                                                            <option value="">Select project</option>
+                                                            <option
+                                                                v-for="project in clientProjects"
+                                                                :key="project.id"
+                                                                :value="String(project.id)"
+                                                            >
+                                                                {{ project.name }}
+                                                            </option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label class="text-[11px] font-medium text-gray-600 dark:text-gray-300">Task</label>
+                                                        <select
+                                                            v-model="sessionTaskDrafts[session.id]"
+                                                            class="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
+                                                            :disabled="isFinalized || isSavingSessionDetails(session.id) || !getSessionProjectDraft(session)"
+                                                        >
+                                                            <option value="">Select task</option>
+                                                            <option
+                                                                v-for="task in sessionEditTasksForProject(session)"
+                                                                :key="task.id"
+                                                                :value="String(task.id)"
+                                                            >
+                                                                {{ formatTaskOption(task) }}
+                                                            </option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label class="text-[11px] font-medium text-gray-600 dark:text-gray-300">Date</label>
+                                                        <input
+                                                            v-model="sessionDateDrafts[session.id]"
+                                                            type="date"
+                                                            class="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
+                                                            :max="'9999-12-31'"
+                                                            :disabled="isFinalized || isSavingSessionDetails(session.id) || !isSessionStopped(session)"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <p v-if="!isSessionStopped(session)" class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                                                    Date can only be changed after the session is stopped.
+                                                </p>
+                                                <div class="mt-2 flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        class="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
+                                                        :disabled="isFinalized || isSavingSessionDetails(session.id)"
+                                                        @click="saveSessionDetails(session)"
+                                                    >
+                                                        {{ isSavingSessionDetails(session.id) ? 'Saving...' : 'Save Details' }}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 transition disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                                                        :disabled="isSavingSessionDetails(session.id)"
+                                                        @click="cancelEditingSessionDetails(session)"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </template>
+                                        </div>
+
+                                        <div class="flex items-center gap-3">
+                                            <template v-if="!isEditingSessionDuration(session.id)">
+                                                <p class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ displaySessionDuration(session) }}</p>
+                                                <button
+                                                    v-if="isSessionStopped(session)"
+                                                    type="button"
+                                                    class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                                                    :disabled="isFinalized || isSavingSessionDuration(session.id)"
+                                                    title="Edit session duration"
+                                                    aria-label="Edit session duration"
+                                                    @click="startEditingSessionDuration(session)"
+                                                >
+                                                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M12 20h9" />
+                                                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                    </svg>
+                                                </button>
+                                            </template>
+
+                                            <template v-else>
+                                                <input
+                                                    v-model="sessionDurationDrafts[session.id]"
+                                                    type="text"
+                                                    inputmode="numeric"
+                                                    pattern="^\\d+:[0-5]\\d:[0-5]\\d$"
+                                                    placeholder="00:00:00"
+                                                    class="w-28 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
+                                                    :disabled="isFinalized || isSavingSessionDuration(session.id)"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    class="rounded-lg bg-indigo-600 px-2 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
+                                                    :disabled="isFinalized || isSavingSessionDuration(session.id)"
+                                                    @click="updateSessionDuration(session)"
+                                                >
+                                                    {{ isSavingSessionDuration(session.id) ? 'Saving...' : 'Save' }}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 transition disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                                                    :disabled="isSavingSessionDuration(session.id)"
+                                                    @click="cancelEditingSessionDuration(session)"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </template>
+
+                                            <button
+                                                v-if="isSessionStopped(session)"
+                                                type="button"
+                                                class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 transition disabled:opacity-60"
+                                                :disabled="isFinalized || isBusy(session.id)"
+                                                @click="resumeStoppedSession(session)"
                                             >
-                                                {{ formatTaskOption(task) }}
-                                            </option>
-                                        </select>
-                                        <button
-                                            type="button"
-                                            class="rounded-lg bg-indigo-600 px-2 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
-                                            :disabled="isFinalized || isSavingSessionTask(session.id) || !hasActiveClientTasks"
-                                            @click="updateSessionTask(session)"
-                                        >
-                                            {{ isSavingSessionTask(session.id) ? 'Saving...' : 'Save Task' }}
-                                        </button>
-                                    </div>
-                                    <div class="mt-2 flex items-center gap-2">
-                                        <input
-                                            v-model="sessionDateDrafts[session.id]"
-                                            type="date"
-                                            class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
-                                            :max="'9999-12-31'"
-                                            :disabled="isFinalized || isSavingSessionDate(session.id) || !isSessionStopped(session)"
-                                        />
-                                        <button
-                                            type="button"
-                                            class="rounded-lg bg-indigo-600 px-2 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
-                                            :disabled="isFinalized || isSavingSessionDate(session.id) || !isSessionStopped(session)"
-                                            @click="updateSessionDate(session)"
-                                        >
-                                            {{ isSavingSessionDate(session.id) ? 'Saving...' : 'Save Date' }}
-                                        </button>
+                                                {{ isBusy(session.id) ? 'Working...' : 'Resume' }}
+                                            </button>
+
+                                            <button
+                                                v-if="!isSessionStopped(session)"
+                                                type="button"
+                                                class="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 transition disabled:opacity-60"
+                                                :disabled="isFinalized || isInlineTimerLoading || isBusy(session.id) || inlineActiveSessionId !== session.id"
+                                                @click="submitResumedSession(session)"
+                                            >
+                                                {{ isInlineTimerLoading || isBusy(session.id) ? 'Working...' : 'Submit' }}
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                class="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition disabled:opacity-60"
+                                                :class="isFinalized ? 'bg-gray-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'"
+                                                :disabled="isFinalized || isBusy(session.id)"
+                                                title="Remove session"
+                                                aria-label="Remove session"
+                                                @click="removeSession(session.id)"
+                                            >
+                                                <span v-if="isBusy(session.id)" class="text-[10px] font-semibold">...</span>
+                                                <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M3 6h18" />
+                                                    <path d="M8 6V4h8v2" />
+                                                    <path d="M19 6l-1 14H6L5 6" />
+                                                    <path d="M10 11v6" />
+                                                    <path d="M14 11v6" />
+                                                </svg>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div class="flex items-center gap-3">
-                                    <template v-if="!isEditingSessionDuration(session.id)">
-                                        <p class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ displaySessionDuration(session) }}</p>
-                                        <button
-                                            v-if="isSessionStopped(session)"
-                                            type="button"
-                                            class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                                            :disabled="isFinalized || isSavingSessionDuration(session.id)"
-                                            title="Edit session duration"
-                                            aria-label="Edit session duration"
-                                            @click="startEditingSessionDuration(session)"
-                                        >
-                                            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                <path d="M12 20h9" />
-                                                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                                            </svg>
-                                        </button>
-                                    </template>
-
-                                    <template v-else>
-                                        <input
-                                            v-model="sessionDurationDrafts[session.id]"
-                                            type="text"
-                                            inputmode="numeric"
-                                            pattern="^\\d+:[0-5]\\d:[0-5]\\d$"
-                                            placeholder="00:00:00"
-                                            class="w-28 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
-                                            :disabled="isFinalized || isSavingSessionDuration(session.id)"
-                                        />
-                                        <button
-                                            type="button"
-                                            class="rounded-lg bg-indigo-600 px-2 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
-                                            :disabled="isFinalized || isSavingSessionDuration(session.id)"
-                                            @click="updateSessionDuration(session)"
-                                        >
-                                            {{ isSavingSessionDuration(session.id) ? 'Saving...' : 'Save' }}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 transition disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                                            :disabled="isSavingSessionDuration(session.id)"
-                                            @click="cancelEditingSessionDuration(session)"
-                                        >
-                                            Cancel
-                                        </button>
-                                    </template>
-
-                                    <button
-                                        v-if="isSessionStopped(session)"
-                                        type="button"
-                                        class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 transition disabled:opacity-60"
-                                        :disabled="isFinalized || isBusy(session.id)"
-                                        @click="resumeStoppedSession(session)"
-                                    >
-                                        {{ isBusy(session.id) ? 'Working...' : 'Resume' }}
-                                    </button>
-
-                                    <button
-                                        v-if="!isSessionStopped(session)"
-                                        type="button"
-                                        class="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 transition disabled:opacity-60"
-                                        :disabled="isFinalized || isInlineTimerLoading || isBusy(session.id) || inlineActiveSessionId !== session.id"
-                                        @click="submitResumedSession(session)"
-                                    >
-                                        {{ isInlineTimerLoading || isBusy(session.id) ? 'Working...' : 'Submit' }}
-                                    </button>
-
+                                <div v-if="hasMoreSessionsForProject(section)" class="flex justify-end">
                                     <button
                                         type="button"
-                                        class="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition disabled:opacity-60"
-                                        :class="isFinalized ? 'bg-gray-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'"
-                                        :disabled="isFinalized || isBusy(session.id)"
-                                        title="Remove session"
-                                        aria-label="Remove session"
-                                        @click="removeSession(session.id)"
+                                        class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 transition dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                                        @click="toggleProjectSection(section.key)"
                                     >
-                                        <span v-if="isBusy(session.id)" class="text-[10px] font-semibold">...</span>
-                                        <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                            <path d="M3 6h18" />
-                                            <path d="M8 6V4h8v2" />
-                                            <path d="M19 6l-1 14H6L5 6" />
-                                            <path d="M10 11v6" />
-                                            <path d="M14 11v6" />
-                                        </svg>
+                                        {{ isProjectSectionExpanded(section.key) ? 'Show Latest 2' : `View All (${hiddenSessionsCountForProject(section)} more)` }}
                                     </button>
                                 </div>
                             </div>
-                        </div>
+                        </section>
                     </div>
                 </div>
 

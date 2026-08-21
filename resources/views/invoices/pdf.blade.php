@@ -123,6 +123,36 @@
         </tbody>
     </table>
 
+    @if(!empty($projectTotals))
+        <table>
+            <thead>
+            <tr>
+                <th style="width: 40%;">Project</th>
+                <th style="width: 15%;" class="amount">Sessions</th>
+                <th style="width: 20%;" class="amount">Tracked Time</th>
+                <th style="width: 25%;" class="amount">Billable Amount (AUD)</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach($projectTotals as $project)
+                @php
+                    $seconds = (int) ($project['total_duration_seconds'] ?? 0);
+                    $hours = floor($seconds / 3600);
+                    $minutes = floor(($seconds % 3600) / 60);
+                    $secs = $seconds % 60;
+                    $duration = sprintf('%02d:%02d:%02d', $hours, $minutes, $secs);
+                @endphp
+                <tr>
+                    <td>{{ $project['project_name'] ?? 'Unassigned Project' }}</td>
+                    <td class="amount">{{ (int) ($project['sessions_count'] ?? 0) }}</td>
+                    <td class="amount">{{ $duration }}</td>
+                    <td class="amount">A${{ number_format((float) ($project['billable_time_amount'] ?? 0), 2) }}</td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
+    @endif
+
     <div class="totals">
         Total: A${{ number_format((float) $grandTotal, 2) }}
     </div>

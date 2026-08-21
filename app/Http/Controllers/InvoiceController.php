@@ -765,6 +765,7 @@ class InvoiceController extends Controller
         $this->abortIfInvoiceFinalized($invoice);
 
         $validated = $request->validate([
+            'project_id' => 'nullable|integer|exists:projects,id',
             'task_id' => 'required|integer|exists:tasks,id',
         ]);
 
@@ -779,7 +780,11 @@ class InvoiceController extends Controller
             ], 404);
         }
 
-        $session->task_id = $this->resolveInvoiceTask($invoice, null, (int) $validated['task_id'])->id;
+        $session->task_id = $this->resolveInvoiceTask(
+            $invoice,
+            isset($validated['project_id']) ? (int) $validated['project_id'] : null,
+            (int) $validated['task_id']
+        )->id;
         $session->save();
 
         $freshInvoice = $invoice->fresh();
@@ -1031,6 +1036,7 @@ class InvoiceController extends Controller
             'invoice' => $pdfPayload['invoice'],
             'user' => $pdfPayload['user'],
             'lineItems' => $pdfPayload['lineItems'],
+            'projectTotals' => $pdfPayload['projectTotals'],
             'totalDurationSeconds' => $pdfPayload['totalDurationSeconds'],
             'hourlyRate' => $pdfPayload['hourlyRate'],
             'grandTotal' => $pdfPayload['grandTotal'],
@@ -1074,6 +1080,7 @@ class InvoiceController extends Controller
             'invoice' => $pdfPayload['invoice'],
             'user' => $pdfPayload['user'],
             'lineItems' => $pdfPayload['lineItems'],
+            'projectTotals' => $pdfPayload['projectTotals'],
             'totalDurationSeconds' => $pdfPayload['totalDurationSeconds'],
             'hourlyRate' => $pdfPayload['hourlyRate'],
             'grandTotal' => $pdfPayload['grandTotal'],
@@ -1141,6 +1148,7 @@ class InvoiceController extends Controller
         $subtotalAmount = array_reduce($lineItems, function (float $carry, array $line): float {
             return $carry + (float) $line['amount'];
         }, 0.0);
+        $projectTotals = $this->invoiceProjectTotals($freshInvoice, $hourlyRate);
 
         $discountAmount = $this->calculateInvoiceDiscountAmount(
             $subtotalAmount,
@@ -1173,6 +1181,7 @@ class InvoiceController extends Controller
             'invoice' => $freshInvoice,
             'user' => $user,
             'lineItems' => $lineItems,
+            'projectTotals' => $projectTotals,
             'totalDurationSeconds' => $totalDurationSeconds,
             'hourlyRate' => $hourlyRate,
             'grandTotal' => round($grandTotal, 2),
@@ -1443,6 +1452,7 @@ class InvoiceController extends Controller
             (float) ($invoice->discount_value ?? 0)
         );
         $totalBillableAmount = round(max(0, $subtotalAmount - $discountAmount), 2);
+        $projectTotals = $this->invoiceProjectTotals($invoice, $hourlyRate);
 
         return [
             'sessions_count' => $sessionsCount,
@@ -1454,7 +1464,56 @@ class InvoiceController extends Controller
             'discount_value' => (float) ($invoice->discount_value ?? 0),
             'discount_amount' => $discountAmount,
             'total_billable_amount' => $totalBillableAmount,
+            'project_totals' => $projectTotals,
         ];
+    }
+
+    private function invoiceProjectTotals(Invoice $invoice, float $hourlyRate): array
+    {
+        $sessions = $this->applyActorScopeToSessions(TimerSession::query())
+            ->with(['task.project:id,name'])
+            ->where('invoice_id', $invoice->id)
+            ->whereNotNull('stopped_at')
+            ->get(['id', 'task_id', 'duration_seconds']);
+
+        $grouped = [];
+
+        foreach ($sessions as $session) {
+            $task = $session->task;
+            $project = $task ? $task->project : null;
+            $projectId = $project ? $project->id : null;
+            $projectName = $project && $project->name ? $project->name : 'Unassigned Project';
+            $key = $projectId ? (string) $projectId : 'unassigned';
+
+            if (!array_key_exists($key, $grouped)) {
+                $grouped[$key] = [
+                    'project_id' => $projectId,
+                    'project_name' => $projectName,
+                    'sessions_count' => 0,
+                    'total_duration_seconds' => 0,
+                    'billable_time_amount' => 0.0,
+                ];
+            }
+
+            $durationSeconds = (int) ($session->duration_seconds ?? 0);
+            $grouped[$key]['sessions_count'] += 1;
+            $grouped[$key]['total_duration_seconds'] += $durationSeconds;
+            $grouped[$key]['billable_time_amount'] = round(
+                (float) $grouped[$key]['billable_time_amount'] + (($durationSeconds / 3600) * $hourlyRate),
+                2
+            );
+        }
+
+        $totals = array_values(array_map(function (array $row): array {
+            $row['total_hours'] = round(((int) $row['total_duration_seconds']) / 3600, 2);
+            return $row;
+        }, $grouped));
+
+        usort($totals, function (array $a, array $b): int {
+            return strcmp((string) ($a['project_name'] ?? ''), (string) ($b['project_name'] ?? ''));
+        });
+
+        return $totals;
     }
 
     private function calculateTaxSummary(array $summary, ?string $baseCurrency = null, bool $includeAllocations = true): array
@@ -1896,6 +1955,7 @@ class InvoiceController extends Controller
                 'total_billable_amount' => 0,
                 'total_business_expenses_amount' => $totalBusinessExpensesAmount,
                 'deductible_business_expenses_amount' => $deductibleBusinessExpensesAmount,
+                'project_totals' => [],
             ];
         }
 
@@ -1948,6 +2008,7 @@ class InvoiceController extends Controller
         $subtotalAmount = round($subtotalAmount, 2);
         $totalDiscountAmount = round($totalDiscountAmount, 2);
         $totalBillableAmount = round(max(0, $subtotalAmount - $totalDiscountAmount), 2);
+        $projectTotals = $this->financialYearProjectTotals($invoiceIds, $invoiceHourlyRates->toArray());
 
         return [
             'invoice_count' => count($invoiceIds),
@@ -1960,6 +2021,7 @@ class InvoiceController extends Controller
             'total_billable_amount' => $totalBillableAmount,
             'total_business_expenses_amount' => $totalBusinessExpensesAmount,
             'deductible_business_expenses_amount' => $deductibleBusinessExpensesAmount,
+            'project_totals' => $projectTotals,
         ];
     }
 
@@ -2006,6 +2068,7 @@ class InvoiceController extends Controller
                 'allocation_total_converted' => 0.0,
                 'total_deductions_amount_converted' => 0.0,
                 'net_amount_converted' => 0.0,
+                'project_totals_converted' => [],
             ];
         }
 
@@ -2026,6 +2089,12 @@ class InvoiceController extends Controller
             ->get()
             ->keyBy('invoice_id');
 
+        $sessionRows = $this->applyActorScopeToSessions(TimerSession::query())
+            ->with(['task.project:id,name'])
+            ->whereIn('invoice_id', $invoiceIds)
+            ->whereNotNull('stopped_at')
+            ->get(['id', 'invoice_id', 'task_id', 'duration_seconds']);
+
         $convertedInvoices = 0;
         $missingRateInvoices = 0;
         $rateCache = [];
@@ -2036,6 +2105,7 @@ class InvoiceController extends Controller
         $grossAmountConverted = 0.0;
         $allocationTotalConverted = 0.0;
         $additionalTaxItemsConverted = [];
+        $projectTotalsConverted = [];
 
         foreach ($invoices as $invoice) {
             $sourceCurrency = $this->normalizeCurrencyCode($invoice->conversion_source_currency)
@@ -2088,6 +2158,37 @@ class InvoiceController extends Controller
             $totalDiscountAmountConverted += round($discountAmount * $conversionRate, 2);
             $grossAmountConverted += round($grossAmount * $conversionRate, 2);
             $allocationTotalConverted += round($allocationTotal * $conversionRate, 2);
+
+            $invoiceSessions = $sessionRows->where('invoice_id', $invoice->id);
+
+            foreach ($invoiceSessions as $session) {
+                $task = $session->task;
+                $project = $task ? $task->project : null;
+                $projectId = $project ? $project->id : null;
+                $projectName = $project && $project->name ? $project->name : 'Unassigned Project';
+                $projectKey = $projectId ? (string) $projectId : 'unassigned';
+
+                if (!array_key_exists($projectKey, $projectTotalsConverted)) {
+                    $projectTotalsConverted[$projectKey] = [
+                        'project_id' => $projectId,
+                        'project_name' => $projectName,
+                        'sessions_count' => 0,
+                        'total_duration_seconds' => 0,
+                        'billable_time_amount_converted' => 0.0,
+                    ];
+                }
+
+                $sessionDurationSeconds = (int) ($session->duration_seconds ?? 0);
+                $sessionBillableAmountConverted = (($sessionDurationSeconds / 3600) * $hourlyRate) * $conversionRate;
+
+                $projectTotalsConverted[$projectKey]['sessions_count'] += 1;
+                $projectTotalsConverted[$projectKey]['total_duration_seconds'] += $sessionDurationSeconds;
+                $projectTotalsConverted[$projectKey]['billable_time_amount_converted'] = round(
+                    (float) $projectTotalsConverted[$projectKey]['billable_time_amount_converted'] + $sessionBillableAmountConverted,
+                    2
+                );
+            }
+
             $convertedInvoices += 1;
         }
 
@@ -2117,6 +2218,17 @@ class InvoiceController extends Controller
             ->values()
             ->all();
 
+        $normalizedProjectTotalsConverted = array_values(array_map(function (array $row): array {
+            $row['total_hours'] = round(((int) $row['total_duration_seconds']) / 3600, 2);
+            $row['billable_time_amount_converted'] = round((float) ($row['billable_time_amount_converted'] ?? 0), 2);
+
+            return $row;
+        }, $projectTotalsConverted));
+
+        usort($normalizedProjectTotalsConverted, function (array $a, array $b): int {
+            return strcmp((string) ($a['project_name'] ?? ''), (string) ($b['project_name'] ?? ''));
+        });
+
         return [
             'target_currency' => $targetCurrency,
             'total_invoices' => $invoices->count(),
@@ -2139,6 +2251,7 @@ class InvoiceController extends Controller
             'allocation_total_converted' => round($allocationTotalConverted, 2),
             'total_deductions_amount_converted' => round($totalDeductionsAmountConverted, 2),
             'net_amount_converted' => round($netAmountConverted, 2),
+            'project_totals_converted' => $normalizedProjectTotalsConverted,
         ];
     }
 
@@ -2165,6 +2278,59 @@ class InvoiceController extends Controller
         return $this->resolveCurrencyRateOrNull($sourceCurrency, $targetCurrency, $rateCache);
     }
 
+    private function financialYearProjectTotals(array $invoiceIds, array $invoiceHourlyRates): array
+    {
+        if (empty($invoiceIds)) {
+            return [];
+        }
+
+        $sessions = $this->applyActorScopeToSessions(TimerSession::query())
+            ->with(['task.project:id,name'])
+            ->whereIn('invoice_id', $invoiceIds)
+            ->whereNotNull('stopped_at')
+            ->get(['id', 'invoice_id', 'task_id', 'duration_seconds']);
+
+        $grouped = [];
+
+        foreach ($sessions as $session) {
+            $task = $session->task;
+            $project = $task ? $task->project : null;
+            $projectId = $project ? $project->id : null;
+            $projectName = $project && $project->name ? $project->name : 'Unassigned Project';
+            $key = $projectId ? (string) $projectId : 'unassigned';
+
+            if (!array_key_exists($key, $grouped)) {
+                $grouped[$key] = [
+                    'project_id' => $projectId,
+                    'project_name' => $projectName,
+                    'sessions_count' => 0,
+                    'total_duration_seconds' => 0,
+                    'billable_time_amount' => 0.0,
+                ];
+            }
+
+            $durationSeconds = (int) ($session->duration_seconds ?? 0);
+            $rate = (float) ($invoiceHourlyRates[$session->invoice_id] ?? 0);
+
+            $grouped[$key]['sessions_count'] += 1;
+            $grouped[$key]['total_duration_seconds'] += $durationSeconds;
+            $grouped[$key]['billable_time_amount'] = round(
+                (float) $grouped[$key]['billable_time_amount'] + (($durationSeconds / 3600) * $rate),
+                2
+            );
+        }
+
+        $totals = array_values(array_map(function (array $row): array {
+            $row['total_hours'] = round(((int) $row['total_duration_seconds']) / 3600, 2);
+            return $row;
+        }, $grouped));
+
+        usort($totals, function (array $a, array $b): int {
+            return strcmp((string) ($a['project_name'] ?? ''), (string) ($b['project_name'] ?? ''));
+        });
+
+        return $totals;
+    }
     /**
      * @param array<string, float|null> $rateCache
      */
