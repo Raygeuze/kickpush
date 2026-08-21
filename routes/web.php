@@ -24,6 +24,7 @@ Route::middleware('auth')->group(function () {
     Route::put('/clients/{clientId}', [ClientController::class, 'update'])->name('clients.update');
 
     Route::get('/projects/list', [ProjectController::class, 'list'])->name('projects.list');
+    Route::get('/projects/{projectId}', [ProjectController::class, 'show'])->name('projects.show');
     Route::post('/projects/create', [ProjectController::class, 'create'])->name('projects.create');
     Route::put('/projects/{projectId}', [ProjectController::class, 'update'])->name('projects.update');
     Route::delete('/projects/{projectId}', [ProjectController::class, 'destroy'])->name('projects.destroy');

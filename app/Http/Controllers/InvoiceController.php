@@ -641,11 +641,10 @@ class InvoiceController extends Controller
             ], 404);
         }
 
-        $session->invoice_id = null;
-        $session->save();
+        $session->delete();
 
         return response()->json([
-            'message' => 'Timer session removed from invoice.',
+            'message' => 'Timer session deleted.',
             'invoice' => $this->formatInvoice($invoice->fresh()),
             'assigned_sessions' => $this->assignedSessionsForInvoice($invoice->fresh()),
             'available_sessions' => $this->availableConfirmedSessions($invoice->fresh()),

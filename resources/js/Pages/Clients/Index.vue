@@ -583,6 +583,12 @@ async function deleteTask(task) {
                                             <p class="text-xs text-gray-600 dark:text-gray-300">{{ project.description || 'No description' }}</p>
                                         </div>
                                         <div class="flex items-center gap-2">
+                                            <Link
+                                                :href="route('projects.show', project.id)"
+                                                class="rounded-lg bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 transition"
+                                            >
+                                                View
+                                            </Link>
                                             <button type="button" class="rounded-lg bg-indigo-600 px-2 py-1 text-xs text-white disabled:opacity-60" :disabled="isSaving" @click="startProjectEdit(project)">
                                                 Edit
                                             </button>
