@@ -104,6 +104,20 @@
         </div>
     </div>
 
+    @php
+        $billableTimeLine = null;
+        $nonTimeLineItems = [];
+
+        foreach ($lineItems as $line) {
+            if ($billableTimeLine === null && strtolower((string) ($line['label'] ?? '')) === 'billable time') {
+                $billableTimeLine = $line;
+                continue;
+            }
+
+            $nonTimeLineItems[] = $line;
+        }
+    @endphp
+
     <table>
         <thead>
         <tr>
@@ -113,27 +127,7 @@
         </tr>
         </thead>
         <tbody>
-        @foreach($lineItems as $line)
-            <tr>
-                <td>{{ $line['label'] }}</td>
-                <td>{{ $line['description'] ?: '-' }}</td>
-                <td class="amount">A${{ number_format((float) $line['amount'], 2) }}</td>
-            </tr>
-        @endforeach
-        </tbody>
-    </table>
-
-    @if(!empty($projectTotals))
-        <table>
-            <thead>
-            <tr>
-                <th style="width: 40%;">Project</th>
-                <th style="width: 15%;" class="amount">Sessions</th>
-                <th style="width: 20%;" class="amount">Tracked Time</th>
-                <th style="width: 25%;" class="amount">Billable Amount (AUD)</th>
-            </tr>
-            </thead>
-            <tbody>
+        @if(!empty($projectTotals))
             @foreach($projectTotals as $project)
                 @php
                     $seconds = (int) ($project['total_duration_seconds'] ?? 0);
@@ -144,14 +138,29 @@
                 @endphp
                 <tr>
                     <td>{{ $project['project_name'] ?? 'Unassigned Project' }}</td>
-                    <td class="amount">{{ (int) ($project['sessions_count'] ?? 0) }}</td>
-                    <td class="amount">{{ $duration }}</td>
+                    <td>{{ (int) ($project['sessions_count'] ?? 0) }} sessions • {{ $duration }} tracked</td>
                     <td class="amount">A${{ number_format((float) ($project['billable_time_amount'] ?? 0), 2) }}</td>
                 </tr>
             @endforeach
-            </tbody>
-        </table>
-    @endif
+        @endif
+
+        @foreach($nonTimeLineItems as $line)
+            <tr>
+                <td>{{ $line['label'] }}</td>
+                <td>{{ $line['description'] ?: '-' }}</td>
+                <td class="amount">A${{ number_format((float) $line['amount'], 2) }}</td>
+            </tr>
+        @endforeach
+
+        @if($billableTimeLine)
+            <tr>
+                <td><strong>Total billable time</strong></td>
+                <td>{{ $billableTimeLine['description'] ?: '-' }}</td>
+                <td class="amount"><strong>A${{ number_format((float) $billableTimeLine['amount'], 2) }}</strong></td>
+            </tr>
+        @endif
+        </tbody>
+    </table>
 
     <div class="totals">
         Total: A${{ number_format((float) $grandTotal, 2) }}
