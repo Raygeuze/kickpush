@@ -8,7 +8,6 @@ use App\Models\Client;
 use App\Models\Expense;
 use App\Models\FinancialYear;
 use App\Models\Invoice;
-use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimerSession;
 use App\Models\User;
@@ -151,13 +150,13 @@ class InvoiceController extends Controller
 
         return Inertia::render('Invoices/Show', [
             'invoice' => $this->formatInvoice($invoice),
-            'clientTasks' => $this->invoiceClientTasks($invoice),
             'financialYears' => $this->financialYearsForActor()->map(fn (FinancialYear $financialYear) => [
                 'id' => $financialYear->id,
                 'label' => $financialYear->label,
                 'start_year' => $financialYear->start_year,
                 'end_year' => $financialYear->end_year,
             ])->values(),
+            'clientTasks' => $this->clientTasksForInvoice($invoice),
             'assignedSessions' => $this->assignedSessionsForInvoice($invoice),
             'availableSessions' => $this->availableConfirmedSessions($invoice),
             'expenses' => $this->invoiceExpenses($invoice),
@@ -245,7 +244,6 @@ class InvoiceController extends Controller
 
         return response()->json([
             'invoice' => $this->formatInvoice($invoice),
-            'client_tasks' => $this->invoiceClientTasks($invoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($invoice),
             'available_sessions' => $this->availableConfirmedSessions($invoice),
             'expenses' => $this->invoiceExpenses($invoice),
@@ -285,21 +283,6 @@ class InvoiceController extends Controller
                 'message' => 'This timer session is already assigned to another invoice.',
             ], 422);
         }
-
-        $resolvedTask = null;
-
-        if ($session->task_id !== null) {
-            $existingTask = Task::query()
-                ->whereKey((int) $session->task_id)
-                ->where('is_active', true)
-                ->first();
-
-            if ($existingTask && (int) $existingTask->client_id === (int) $invoice->client_id) {
-                $resolvedTask = $existingTask;
-            }
-        }
-
-        $session->task_id = ($resolvedTask ?? $this->resolveInvoiceTask($invoice))->id;
 
         $session->invoice_id = $invoice->id;
         $session->save();
@@ -361,9 +344,15 @@ class InvoiceController extends Controller
         $this->abortIfInvoiceFinalized($invoice);
 
         $validated = $request->validate([
-            'project_id' => 'required|integer|exists:projects,id',
-            'task_id' => 'nullable|integer|exists:tasks,id',
+            'project_id' => 'nullable|integer',
+            'task_id' => 'nullable|integer',
         ]);
+
+        $taskId = $this->resolveTaskIdForInvoiceClient(
+            $invoice,
+            isset($validated['project_id']) ? (int) $validated['project_id'] : null,
+            isset($validated['task_id']) ? (int) $validated['task_id'] : null
+        );
 
         $activeSession = $this->findAnyActiveSessionForActor();
 
@@ -387,11 +376,7 @@ class InvoiceController extends Controller
         $session = TimerSession::create([
             'user_id' => Auth::id(),
             'invoice_id' => $invoice->id,
-            'task_id' => $this->resolveInvoiceTask(
-                $invoice,
-                (int) $validated['project_id'],
-                isset($validated['task_id']) ? (int) $validated['task_id'] : null
-            )->id,
+            'task_id' => $taskId,
             'started_at' => now(),
             'accumulated_seconds' => 0,
         ]);
@@ -541,22 +526,24 @@ class InvoiceController extends Controller
         $validated = $request->validate([
             'duration_minutes' => 'required|integer|min:1|max:1440',
             'started_at' => 'nullable|date',
-            'project_id' => 'required|integer|exists:projects,id',
-            'task_id' => 'nullable|integer|exists:tasks,id',
+            'project_id' => 'nullable|integer',
+            'task_id' => 'nullable|integer',
         ]);
 
         $durationSeconds = ((int) $validated['duration_minutes']) * 60;
         $startedAt = isset($validated['started_at']) ? now()->parse($validated['started_at']) : now();
         $stoppedAt = (clone $startedAt)->addSeconds($durationSeconds);
 
+        $taskId = $this->resolveTaskIdForInvoiceClient(
+            $invoice,
+            isset($validated['project_id']) ? (int) $validated['project_id'] : null,
+            isset($validated['task_id']) ? (int) $validated['task_id'] : null
+        );
+
         TimerSession::create([
             'user_id' => Auth::id(),
             'invoice_id' => $invoice->id,
-            'task_id' => $this->resolveInvoiceTask(
-                $invoice,
-                (int) $validated['project_id'],
-                isset($validated['task_id']) ? (int) $validated['task_id'] : null
-            )->id,
+            'task_id' => $taskId,
             'started_at' => $startedAt,
             'stopped_at' => $stoppedAt,
             'duration_seconds' => $durationSeconds,
@@ -641,10 +628,11 @@ class InvoiceController extends Controller
             ], 404);
         }
 
-        $session->delete();
+        $session->invoice_id = null;
+        $session->save();
 
         return response()->json([
-            'message' => 'Timer session deleted.',
+            'message' => 'Timer session removed from invoice.',
             'invoice' => $this->formatInvoice($invoice->fresh()),
             'assigned_sessions' => $this->assignedSessionsForInvoice($invoice->fresh()),
             'available_sessions' => $this->availableConfirmedSessions($invoice->fresh()),
@@ -764,8 +752,8 @@ class InvoiceController extends Controller
         $this->abortIfInvoiceFinalized($invoice);
 
         $validated = $request->validate([
-            'project_id' => 'nullable|integer|exists:projects,id',
-            'task_id' => 'required|integer|exists:tasks,id',
+            'project_id' => 'nullable|integer',
+            'task_id' => 'nullable|integer',
         ]);
 
         $session = $this->applyActorScopeToSessions(TimerSession::query())
@@ -779,11 +767,19 @@ class InvoiceController extends Controller
             ], 404);
         }
 
-        $session->task_id = $this->resolveInvoiceTask(
+        $taskId = $this->resolveTaskIdForInvoiceClient(
             $invoice,
             isset($validated['project_id']) ? (int) $validated['project_id'] : null,
-            (int) $validated['task_id']
-        )->id;
+            isset($validated['task_id']) ? (int) $validated['task_id'] : null
+        );
+
+        if ($taskId === null) {
+            return response()->json([
+                'message' => 'Select a valid task for this client before saving.',
+            ], 422);
+        }
+
+        $session->task_id = $taskId;
         $session->save();
 
         $freshInvoice = $invoice->fresh();
@@ -850,7 +846,6 @@ class InvoiceController extends Controller
         if ($runningSession) {
             $stoppedAt = now();
             $runningSession->invoice_id = $invoice->id;
-            $runningSession->task_id = $this->resolveInvoiceTask($invoice, null, $runningSession->task_id ? (int) $runningSession->task_id : null)->id;
             $runningSession->stopped_at = $stoppedAt;
             $runningSession->duration_seconds = $this->calculateElapsedSeconds($runningSession, $stoppedAt);
             $runningSession->paused_at = null;
@@ -1035,7 +1030,7 @@ class InvoiceController extends Controller
             'invoice' => $pdfPayload['invoice'],
             'user' => $pdfPayload['user'],
             'lineItems' => $pdfPayload['lineItems'],
-            'projectTotals' => $pdfPayload['projectTotals'],
+            'projectTotals' => $pdfPayload['projectTotals'] ?? [],
             'totalDurationSeconds' => $pdfPayload['totalDurationSeconds'],
             'hourlyRate' => $pdfPayload['hourlyRate'],
             'grandTotal' => $pdfPayload['grandTotal'],
@@ -1079,7 +1074,7 @@ class InvoiceController extends Controller
             'invoice' => $pdfPayload['invoice'],
             'user' => $pdfPayload['user'],
             'lineItems' => $pdfPayload['lineItems'],
-            'projectTotals' => $pdfPayload['projectTotals'],
+            'projectTotals' => $pdfPayload['projectTotals'] ?? [],
             'totalDurationSeconds' => $pdfPayload['totalDurationSeconds'],
             'hourlyRate' => $pdfPayload['hourlyRate'],
             'grandTotal' => $pdfPayload['grandTotal'],
@@ -1118,15 +1113,14 @@ class InvoiceController extends Controller
     {
         $freshInvoice = $invoice->fresh(['client', 'financialYear']);
         $user = Auth::user();
+        $summary = $this->invoiceSummary($freshInvoice);
         $hourlyRate = $freshInvoice->client ? (float) $freshInvoice->client->hourly_rate : 0;
-        $sessions = $this->assignedSessionsForInvoice($freshInvoice);
         $expenses = $this->invoiceExpenses($freshInvoice);
+        $projectTotals = $this->invoiceProjectTotals($freshInvoice, $hourlyRate);
 
-        $totalDurationSeconds = (int) $sessions->sum(function (TimerSession $session) {
-            return (int) ($session->duration_seconds ?? 0);
-        });
+        $totalDurationSeconds = (int) ($summary['total_duration_seconds'] ?? 0);
         $totalHours = round($totalDurationSeconds / 3600, 2);
-        $timeAmount = round($totalHours * $hourlyRate, 2);
+        $timeAmount = (float) ($summary['billable_time_amount'] ?? 0);
 
         $expenseLines = $expenses->map(function (Expense $expense): array {
             return [
@@ -1144,16 +1138,7 @@ class InvoiceController extends Controller
             ],
         ], $expenseLines);
 
-        $subtotalAmount = array_reduce($lineItems, function (float $carry, array $line): float {
-            return $carry + (float) $line['amount'];
-        }, 0.0);
-        $projectTotals = $this->invoiceProjectTotals($freshInvoice, $hourlyRate);
-
-        $discountAmount = $this->calculateInvoiceDiscountAmount(
-            $subtotalAmount,
-            $freshInvoice->discount_type,
-            (float) ($freshInvoice->discount_value ?? 0)
-        );
+        $discountAmount = (float) ($summary['discount_amount'] ?? 0);
 
         if ($discountAmount > 0) {
             $lineItems[] = [
@@ -1165,7 +1150,7 @@ class InvoiceController extends Controller
             ];
         }
 
-        $grandTotal = max(0.0, round($subtotalAmount - $discountAmount, 2));
+        $grandTotal = (float) ($summary['total_billable_amount'] ?? 0);
 
         $generatedAt = now();
         $dueDate = $freshInvoice->due_at ?: $generatedAt->copy()->addDays(14);
@@ -1187,6 +1172,41 @@ class InvoiceController extends Controller
             'generatedAt' => $generatedAt,
             'dueDate' => $dueDate,
         ];
+    }
+
+    private function invoiceProjectTotals(Invoice $invoice, float $hourlyRate): array
+    {
+        $sessions = $this->applyActorScopeToSessions(TimerSession::query())
+            ->where('invoice_id', $invoice->id)
+            ->whereNotNull('stopped_at')
+            ->with(['task.project'])
+            ->get(['id', 'task_id', 'duration_seconds']);
+
+        $grouped = $sessions->groupBy(function (TimerSession $session): string {
+            $projectId = optional(optional($session->task)->project)->id;
+
+            return $projectId ? 'project-' . $projectId : 'project-unassigned';
+        });
+
+        return $grouped->map(function ($projectSessions, string $groupKey) use ($hourlyRate): array {
+            /** @var TimerSession $first */
+            $first = $projectSessions->first();
+            $project = optional(optional($first)->task)->project;
+            $totalDurationSeconds = (int) $projectSessions->sum(fn (TimerSession $session): int => (int) ($session->duration_seconds ?? 0));
+            $totalHours = round($totalDurationSeconds / 3600, 2);
+            $billableTimeAmount = round($totalHours * $hourlyRate, 2);
+
+            return [
+                'project_key' => $groupKey,
+                'project_id' => optional($project)->id,
+                'project_name' => optional($project)->name ?? 'Unassigned Project',
+                'sessions_count' => (int) $projectSessions->count(),
+                'total_duration_seconds' => $totalDurationSeconds,
+                'billable_time_amount' => $billableTimeAmount,
+            ];
+        })->sortBy(fn (array $project): string => strtolower((string) ($project['project_name'] ?? '')))
+            ->values()
+            ->all();
     }
 
     private function applyActorScopeToSessions(Builder $query): Builder
@@ -1275,148 +1295,77 @@ class InvoiceController extends Controller
     private function assignedSessionsForInvoice(Invoice $invoice)
     {
         return $this->applyActorScopeToSessions(TimerSession::query())
-            ->with(['task:id,name,project_id', 'task.project:id,name'])
             ->where('invoice_id', $invoice->id)
+            ->with(['task.project'])
             ->orderByDesc('started_at')
             ->get();
     }
 
-    private function availableConfirmedSessions(Invoice $invoice)
+    private function clientTasksForInvoice(Invoice $invoice)
     {
-        return $this->applyActorScopeToSessions(TimerSession::query())
-            ->with(['task:id,name,project_id', 'task.project:id,name'])
-            ->whereNotNull('stopped_at')
-            ->whereNull('invoice_id')
-            ->orderByDesc('started_at')
-            ->limit(50)
-            ->get();
-    }
-
-    private function invoiceClientTasks(Invoice $invoice)
-    {
-        if ($invoice->client_id === null) {
+        if (!$invoice->client_id) {
             return collect();
         }
 
         return Task::query()
             ->where('client_id', $invoice->client_id)
-            ->where('is_active', true)
-            ->with('project:id,name,client_id')
+            ->whereHas('project', function (Builder $query): void {
+                $query->where('user_id', Auth::id());
+            })
+            ->with(['project'])
             ->orderBy('name')
-            ->get(['id', 'client_id', 'project_id', 'name', 'description', 'is_active', 'is_default']);
+            ->get();
     }
 
-    private function resolveInvoiceTask(Invoice $invoice, ?int $projectId = null, ?int $taskId = null): Task
+    private function resolveTaskIdForInvoiceClient(Invoice $invoice, ?int $projectId, ?int $taskId): ?int
     {
-        $selectedProject = null;
-
-        if ($projectId !== null) {
-            $selectedProject = $this->findProjectForInvoiceClient($invoice, $projectId);
+        if (!$invoice->client_id) {
+            return null;
         }
 
         if ($taskId !== null) {
             $task = Task::query()
+                ->where('client_id', $invoice->client_id)
                 ->whereKey($taskId)
                 ->where('is_active', true)
+                ->whereHas('project', function (Builder $query): void {
+                    $query->where('user_id', Auth::id());
+                })
                 ->first();
 
             if (!$task) {
-                abort(422, 'Selected task was not found or is inactive.');
+                return null;
             }
 
-            if ((int) $task->client_id !== (int) $invoice->client_id) {
-                abort(422, 'Selected task does not belong to this invoice client.');
-            }
-
-            if ($selectedProject !== null && (int) $task->project_id !== (int) $selectedProject->id) {
-                abort(422, 'Selected task does not belong to the selected project.');
-            }
-
-            return $task;
+            return (int) $task->id;
         }
 
-        if ($selectedProject === null) {
-            return $this->findDefaultTaskForClient($invoice);
+        if ($projectId === null) {
+            return null;
         }
 
-        return $this->findDefaultTaskForProject($selectedProject);
+        $fallbackTask = Task::query()
+            ->where('client_id', $invoice->client_id)
+            ->where('project_id', $projectId)
+            ->where('is_active', true)
+            ->whereHas('project', function (Builder $query): void {
+                $query->where('user_id', Auth::id());
+            })
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->first();
+
+        return $fallbackTask ? (int) $fallbackTask->id : null;
     }
 
-    private function findDefaultTaskForClient(Invoice $invoice): Task
+    private function availableConfirmedSessions(Invoice $invoice)
     {
-        if ($invoice->client_id === null) {
-            abort(422, 'Assign a client to the invoice before tracking time.');
-        }
-
-        $defaultTask = Task::query()
-            ->where('client_id', $invoice->client_id)
-            ->where('is_default', true)
-            ->where('is_active', true)
-            ->first();
-
-        if ($defaultTask) {
-            return $defaultTask;
-        }
-
-        $firstTask = Task::query()
-            ->where('client_id', $invoice->client_id)
-            ->where('is_active', true)
-            ->orderBy('id')
-            ->first();
-
-        if ($firstTask) {
-            return $firstTask;
-        }
-
-        abort(422, 'Create at least one active task for this invoice client before tracking time.');
-    }
-
-    private function findProjectForInvoiceClient(Invoice $invoice, int $projectId): Project
-    {
-        if ($invoice->client_id === null) {
-            abort(422, 'Assign a client to the invoice before tracking time.');
-        }
-
-        $project = Project::query()
-            ->where('user_id', Auth::id())
-            ->where('client_id', $invoice->client_id)
-            ->whereKey($projectId)
-            ->first();
-
-        if (!$project) {
-            abort(422, 'Selected project does not belong to this invoice client.');
-        }
-
-        if ($project->is_active === false) {
-            abort(422, 'Selected project is archived.');
-        }
-
-        return $project;
-    }
-
-    private function findDefaultTaskForProject(Project $project): Task
-    {
-        $defaultTask = Task::query()
-            ->where('project_id', $project->id)
-            ->where('is_default', true)
-            ->where('is_active', true)
-            ->first();
-
-        if ($defaultTask) {
-            return $defaultTask;
-        }
-
-        $firstTask = Task::query()
-            ->where('project_id', $project->id)
-            ->where('is_active', true)
-            ->orderBy('id')
-            ->first();
-
-        if ($firstTask) {
-            return $firstTask;
-        }
-
-        abort(422, 'Create at least one active task in the selected project before tracking time.');
+        return $this->applyActorScopeToSessions(TimerSession::query())
+            ->whereNotNull('stopped_at')
+            ->whereNull('invoice_id')
+            ->orderByDesc('started_at')
+            ->limit(50)
+            ->get();
     }
 
     private function invoiceExpenses(Invoice $invoice)
@@ -1443,7 +1392,8 @@ class InvoiceController extends Controller
             ->where('invoice_id', $invoice->id)
             ->sum('amount'));
         $hourlyRate = $invoice->client ? (float) $invoice->client->hourly_rate : 0;
-        $billableTimeAmount = round(($totalDurationSeconds / 3600) * $hourlyRate, 2);
+        $totalHours = round($totalDurationSeconds / 3600, 2);
+        $billableTimeAmount = round($totalHours * $hourlyRate, 2);
         $subtotalAmount = round($billableTimeAmount + $totalExpensesAmount, 2);
         $discountAmount = $this->calculateInvoiceDiscountAmount(
             $subtotalAmount,
@@ -1451,7 +1401,6 @@ class InvoiceController extends Controller
             (float) ($invoice->discount_value ?? 0)
         );
         $totalBillableAmount = round(max(0, $subtotalAmount - $discountAmount), 2);
-        $projectTotals = $this->invoiceProjectTotals($invoice, $hourlyRate);
 
         return [
             'sessions_count' => $sessionsCount,
@@ -1463,56 +1412,7 @@ class InvoiceController extends Controller
             'discount_value' => (float) ($invoice->discount_value ?? 0),
             'discount_amount' => $discountAmount,
             'total_billable_amount' => $totalBillableAmount,
-            'project_totals' => $projectTotals,
         ];
-    }
-
-    private function invoiceProjectTotals(Invoice $invoice, float $hourlyRate): array
-    {
-        $sessions = $this->applyActorScopeToSessions(TimerSession::query())
-            ->with(['task.project:id,name'])
-            ->where('invoice_id', $invoice->id)
-            ->whereNotNull('stopped_at')
-            ->get(['id', 'task_id', 'duration_seconds']);
-
-        $grouped = [];
-
-        foreach ($sessions as $session) {
-            $task = $session->task;
-            $project = $task ? $task->project : null;
-            $projectId = $project ? $project->id : null;
-            $projectName = $project && $project->name ? $project->name : 'Unassigned Project';
-            $key = $projectId ? (string) $projectId : 'unassigned';
-
-            if (!array_key_exists($key, $grouped)) {
-                $grouped[$key] = [
-                    'project_id' => $projectId,
-                    'project_name' => $projectName,
-                    'sessions_count' => 0,
-                    'total_duration_seconds' => 0,
-                    'billable_time_amount' => 0.0,
-                ];
-            }
-
-            $durationSeconds = (int) ($session->duration_seconds ?? 0);
-            $grouped[$key]['sessions_count'] += 1;
-            $grouped[$key]['total_duration_seconds'] += $durationSeconds;
-            $grouped[$key]['billable_time_amount'] = round(
-                (float) $grouped[$key]['billable_time_amount'] + (($durationSeconds / 3600) * $hourlyRate),
-                2
-            );
-        }
-
-        $totals = array_values(array_map(function (array $row): array {
-            $row['total_hours'] = round(((int) $row['total_duration_seconds']) / 3600, 2);
-            return $row;
-        }, $grouped));
-
-        usort($totals, function (array $a, array $b): int {
-            return strcmp((string) ($a['project_name'] ?? ''), (string) ($b['project_name'] ?? ''));
-        });
-
-        return $totals;
     }
 
     private function calculateTaxSummary(array $summary, ?string $baseCurrency = null, bool $includeAllocations = true): array
@@ -1954,7 +1854,6 @@ class InvoiceController extends Controller
                 'total_billable_amount' => 0,
                 'total_business_expenses_amount' => $totalBusinessExpensesAmount,
                 'deductible_business_expenses_amount' => $deductibleBusinessExpensesAmount,
-                'project_totals' => [],
             ];
         }
 
@@ -2007,7 +1906,6 @@ class InvoiceController extends Controller
         $subtotalAmount = round($subtotalAmount, 2);
         $totalDiscountAmount = round($totalDiscountAmount, 2);
         $totalBillableAmount = round(max(0, $subtotalAmount - $totalDiscountAmount), 2);
-        $projectTotals = $this->financialYearProjectTotals($invoiceIds, $invoiceHourlyRates->toArray());
 
         return [
             'invoice_count' => count($invoiceIds),
@@ -2020,7 +1918,6 @@ class InvoiceController extends Controller
             'total_billable_amount' => $totalBillableAmount,
             'total_business_expenses_amount' => $totalBusinessExpensesAmount,
             'deductible_business_expenses_amount' => $deductibleBusinessExpensesAmount,
-            'project_totals' => $projectTotals,
         ];
     }
 
@@ -2067,7 +1964,6 @@ class InvoiceController extends Controller
                 'allocation_total_converted' => 0.0,
                 'total_deductions_amount_converted' => 0.0,
                 'net_amount_converted' => 0.0,
-                'project_totals_converted' => [],
             ];
         }
 
@@ -2088,12 +1984,6 @@ class InvoiceController extends Controller
             ->get()
             ->keyBy('invoice_id');
 
-        $sessionRows = $this->applyActorScopeToSessions(TimerSession::query())
-            ->with(['task.project:id,name'])
-            ->whereIn('invoice_id', $invoiceIds)
-            ->whereNotNull('stopped_at')
-            ->get(['id', 'invoice_id', 'task_id', 'duration_seconds']);
-
         $convertedInvoices = 0;
         $missingRateInvoices = 0;
         $rateCache = [];
@@ -2104,7 +1994,6 @@ class InvoiceController extends Controller
         $grossAmountConverted = 0.0;
         $allocationTotalConverted = 0.0;
         $additionalTaxItemsConverted = [];
-        $projectTotalsConverted = [];
 
         foreach ($invoices as $invoice) {
             $sourceCurrency = $this->normalizeCurrencyCode($invoice->conversion_source_currency)
@@ -2157,37 +2046,6 @@ class InvoiceController extends Controller
             $totalDiscountAmountConverted += round($discountAmount * $conversionRate, 2);
             $grossAmountConverted += round($grossAmount * $conversionRate, 2);
             $allocationTotalConverted += round($allocationTotal * $conversionRate, 2);
-
-            $invoiceSessions = $sessionRows->where('invoice_id', $invoice->id);
-
-            foreach ($invoiceSessions as $session) {
-                $task = $session->task;
-                $project = $task ? $task->project : null;
-                $projectId = $project ? $project->id : null;
-                $projectName = $project && $project->name ? $project->name : 'Unassigned Project';
-                $projectKey = $projectId ? (string) $projectId : 'unassigned';
-
-                if (!array_key_exists($projectKey, $projectTotalsConverted)) {
-                    $projectTotalsConverted[$projectKey] = [
-                        'project_id' => $projectId,
-                        'project_name' => $projectName,
-                        'sessions_count' => 0,
-                        'total_duration_seconds' => 0,
-                        'billable_time_amount_converted' => 0.0,
-                    ];
-                }
-
-                $sessionDurationSeconds = (int) ($session->duration_seconds ?? 0);
-                $sessionBillableAmountConverted = (($sessionDurationSeconds / 3600) * $hourlyRate) * $conversionRate;
-
-                $projectTotalsConverted[$projectKey]['sessions_count'] += 1;
-                $projectTotalsConverted[$projectKey]['total_duration_seconds'] += $sessionDurationSeconds;
-                $projectTotalsConverted[$projectKey]['billable_time_amount_converted'] = round(
-                    (float) $projectTotalsConverted[$projectKey]['billable_time_amount_converted'] + $sessionBillableAmountConverted,
-                    2
-                );
-            }
-
             $convertedInvoices += 1;
         }
 
@@ -2217,17 +2075,6 @@ class InvoiceController extends Controller
             ->values()
             ->all();
 
-        $normalizedProjectTotalsConverted = array_values(array_map(function (array $row): array {
-            $row['total_hours'] = round(((int) $row['total_duration_seconds']) / 3600, 2);
-            $row['billable_time_amount_converted'] = round((float) ($row['billable_time_amount_converted'] ?? 0), 2);
-
-            return $row;
-        }, $projectTotalsConverted));
-
-        usort($normalizedProjectTotalsConverted, function (array $a, array $b): int {
-            return strcmp((string) ($a['project_name'] ?? ''), (string) ($b['project_name'] ?? ''));
-        });
-
         return [
             'target_currency' => $targetCurrency,
             'total_invoices' => $invoices->count(),
@@ -2250,7 +2097,6 @@ class InvoiceController extends Controller
             'allocation_total_converted' => round($allocationTotalConverted, 2),
             'total_deductions_amount_converted' => round($totalDeductionsAmountConverted, 2),
             'net_amount_converted' => round($netAmountConverted, 2),
-            'project_totals_converted' => $normalizedProjectTotalsConverted,
         ];
     }
 
@@ -2277,59 +2123,6 @@ class InvoiceController extends Controller
         return $this->resolveCurrencyRateOrNull($sourceCurrency, $targetCurrency, $rateCache);
     }
 
-    private function financialYearProjectTotals(array $invoiceIds, array $invoiceHourlyRates): array
-    {
-        if (empty($invoiceIds)) {
-            return [];
-        }
-
-        $sessions = $this->applyActorScopeToSessions(TimerSession::query())
-            ->with(['task.project:id,name'])
-            ->whereIn('invoice_id', $invoiceIds)
-            ->whereNotNull('stopped_at')
-            ->get(['id', 'invoice_id', 'task_id', 'duration_seconds']);
-
-        $grouped = [];
-
-        foreach ($sessions as $session) {
-            $task = $session->task;
-            $project = $task ? $task->project : null;
-            $projectId = $project ? $project->id : null;
-            $projectName = $project && $project->name ? $project->name : 'Unassigned Project';
-            $key = $projectId ? (string) $projectId : 'unassigned';
-
-            if (!array_key_exists($key, $grouped)) {
-                $grouped[$key] = [
-                    'project_id' => $projectId,
-                    'project_name' => $projectName,
-                    'sessions_count' => 0,
-                    'total_duration_seconds' => 0,
-                    'billable_time_amount' => 0.0,
-                ];
-            }
-
-            $durationSeconds = (int) ($session->duration_seconds ?? 0);
-            $rate = (float) ($invoiceHourlyRates[$session->invoice_id] ?? 0);
-
-            $grouped[$key]['sessions_count'] += 1;
-            $grouped[$key]['total_duration_seconds'] += $durationSeconds;
-            $grouped[$key]['billable_time_amount'] = round(
-                (float) $grouped[$key]['billable_time_amount'] + (($durationSeconds / 3600) * $rate),
-                2
-            );
-        }
-
-        $totals = array_values(array_map(function (array $row): array {
-            $row['total_hours'] = round(((int) $row['total_duration_seconds']) / 3600, 2);
-            return $row;
-        }, $grouped));
-
-        usort($totals, function (array $a, array $b): int {
-            return strcmp((string) ($a['project_name'] ?? ''), (string) ($b['project_name'] ?? ''));
-        });
-
-        return $totals;
-    }
     /**
      * @param array<string, float|null> $rateCache
      */

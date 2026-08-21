@@ -370,11 +370,18 @@ function formatDuration(totalSeconds) {
 
 function formatCurrency(amount) {
     const value = Number(amount || 0);
+    const currencyCode = String(invoice.value?.client?.currency || 'USD').toUpperCase();
 
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-    }).format(value);
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currencyCode,
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(value);
+    } catch (error) {
+        return `${currencyCode} ${value.toFixed(2)}`;
+    }
 }
 
 function displaySessionDuration(session) {
