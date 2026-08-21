@@ -10,6 +10,7 @@ class TimerSession extends Model
     protected $fillable = [
         'user_id',
         'invoice_id',
+        'task_id',
         'started_at',
         'paused_at',
         'stopped_at',
@@ -34,6 +35,11 @@ class TimerSession extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function task(): BelongsTo
+    {
+        return $this->belongsTo(Task::class);
     }
 
     public function isRunning(): bool

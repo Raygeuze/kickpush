@@ -3,6 +3,8 @@
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\BusinessExpenseController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\ProjectController;
+use App\Http\Controllers\TaskController;
 use App\Http\Controllers\TimerSessionController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -20,6 +22,16 @@ Route::middleware('auth')->group(function () {
     Route::get('/clients/list', [ClientController::class, 'list'])->name('clients.list');
     Route::post('/clients/create', [ClientController::class, 'create'])->name('clients.create');
     Route::put('/clients/{clientId}', [ClientController::class, 'update'])->name('clients.update');
+
+    Route::get('/projects/list', [ProjectController::class, 'list'])->name('projects.list');
+    Route::post('/projects/create', [ProjectController::class, 'create'])->name('projects.create');
+    Route::put('/projects/{projectId}', [ProjectController::class, 'update'])->name('projects.update');
+    Route::delete('/projects/{projectId}', [ProjectController::class, 'destroy'])->name('projects.destroy');
+
+    Route::get('/tasks/list', [TaskController::class, 'list'])->name('tasks.list');
+    Route::post('/tasks/create', [TaskController::class, 'create'])->name('tasks.create');
+    Route::put('/tasks/{taskId}', [TaskController::class, 'update'])->name('tasks.update');
+    Route::delete('/tasks/{taskId}', [TaskController::class, 'destroy'])->name('tasks.destroy');
 
     Route::get('/business-expenses', [BusinessExpenseController::class, 'index'])->name('businessExpenses.index');
     Route::post('/business-expenses', [BusinessExpenseController::class, 'store'])->name('businessExpenses.store');
@@ -44,6 +56,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/resume', [InvoiceController::class, 'resumeStoppedSession'])->name('invoices.sessions.resume');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/date', [InvoiceController::class, 'updateSessionDate'])->name('invoices.sessions.updateDate');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/duration', [InvoiceController::class, 'updateSessionDuration'])->name('invoices.sessions.updateDuration');
+    Route::post('/invoices/{invoiceId}/sessions/{sessionId}/task', [InvoiceController::class, 'updateSessionTask'])->name('invoices.sessions.updateTask');
     Route::post('/invoices/{invoiceId}/discount', [InvoiceController::class, 'updateDiscount'])->name('invoices.discount.update');
     Route::delete('/invoices/{invoiceId}/sessions/{sessionId}', [InvoiceController::class, 'detachSession'])->name('invoices.sessions.detach');
     Route::post('/invoices/{invoiceId}/expenses', [InvoiceController::class, 'addExpense'])->name('invoices.expenses.add');

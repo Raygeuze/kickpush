@@ -2,25 +2,25 @@
 
 namespace App\Models;
 
+use App\Models\Task;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Client extends Model
+class Project extends Model
 {
     protected $fillable = [
         'user_id',
+        'client_id',
         'name',
-        'email',
-        'currency',
-        'hourly_rate',
-        'notes',
+        'description',
+        'is_active',
     ];
 
     protected function casts(): array
     {
         return [
-            'hourly_rate' => 'decimal:2',
+            'is_active' => 'boolean',
         ];
     }
 
@@ -29,21 +29,14 @@ class Client extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function invoices(): HasMany
+    public function client(): BelongsTo
     {
-        return $this->hasMany(Invoice::class);
-    }
-
-    public function projects(): HasMany
-    {
-        return $this->hasMany(Project::class)
-            ->orderBy('name');
+        return $this->belongsTo(Client::class);
     }
 
     public function tasks(): HasMany
     {
         return $this->hasMany(Task::class)
-            ->with('project:id,name,client_id')
             ->orderBy('name');
     }
 }

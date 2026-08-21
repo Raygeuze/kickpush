@@ -18,6 +18,10 @@ class ClientController extends Controller
 
         $clients = Client::query()
             ->where('user_id', Auth::id())
+            ->with([
+                'projects:id,client_id,name,description,is_active,created_at,updated_at',
+                'tasks:id,client_id,project_id,name,description,is_active,is_default,created_at,updated_at',
+            ])
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'currency', 'hourly_rate', 'notes', 'created_at', 'updated_at']);
 
@@ -39,6 +43,10 @@ class ClientController extends Controller
 
         $clients = Client::query()
             ->where('user_id', Auth::id())
+            ->with([
+                'projects:id,client_id,name,description,is_active,created_at,updated_at',
+                'tasks:id,client_id,project_id,name,description,is_active,is_default,created_at,updated_at',
+            ])
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'currency', 'hourly_rate', 'notes', 'created_at', 'updated_at']);
 

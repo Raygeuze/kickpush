@@ -13,6 +13,7 @@ use Laravel\Sanctum\HasApiTokens;
 use App\Models\TimerSession;
 use App\Models\Invoice;
 use App\Models\Client;
+use App\Models\Project;
 use App\Models\UserAdditionalTax;
 use Stripe\StripeClient;
 use Illuminate\Support\Facades\Log;
@@ -102,6 +103,12 @@ class User extends Authenticatable
     public function clients()
     {
         return $this->hasMany(Client::class)
+            ->orderBy('name');
+    }
+
+    public function projects()
+    {
+        return $this->hasMany(Project::class)
             ->orderBy('name');
     }
 

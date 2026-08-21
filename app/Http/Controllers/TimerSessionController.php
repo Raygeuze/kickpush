@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
+use App\Models\Project;
+use App\Models\Task;
 use App\Models\TimerSession;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -67,6 +69,10 @@ class TimerSessionController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
+        $validated = $request->validate([
+            'project_id' => 'required|integer|exists:projects,id',
+        ]);
+
         $existing = $this->findActiveSession();
 
         if ($existing) {
@@ -76,8 +82,17 @@ class TimerSessionController extends Controller
             ], 409);
         }
 
+        $project = $this->findProjectForActorOrFail((int) $validated['project_id']);
+
+        if ($project->is_active === false) {
+            return response()->json([
+                'message' => 'Cannot start a timer session on an archived project.',
+            ], 422);
+        }
+
         $session = TimerSession::create([
             'user_id' => Auth::id(),
+            'task_id' => $this->findDefaultTaskForProject($project)->id,
             'started_at' => now(),
             'accumulated_seconds' => 0,
         ]);
@@ -184,6 +199,7 @@ class TimerSessionController extends Controller
         $validated = $request->validate([
             'session_id' => 'required|integer|exists:timer_sessions,id',
             'invoice_id' => 'required|integer|exists:invoices,id',
+            'task_id' => 'nullable|integer|exists:tasks,id',
         ]);
 
         $invoice = $this->applyActorScope(Invoice::query())
@@ -194,9 +210,9 @@ class TimerSessionController extends Controller
             abort(403, 'Invoice does not belong to this user.');
         }
 
-        if ($invoice->status === 'finalized') {
+        if (in_array($invoice->status, ['finalized', 'paid'], true)) {
             return response()->json([
-                'message' => 'Finalized invoices cannot receive new timer sessions.',
+                'message' => 'Finalized or paid invoices cannot receive new timer sessions.',
             ], 422);
         }
 
@@ -216,7 +232,14 @@ class TimerSessionController extends Controller
             ], 422);
         }
 
+        $task = $this->resolveInvoiceTaskForSession(
+            $invoice,
+            $session,
+            isset($validated['task_id']) ? (int) $validated['task_id'] : null
+        );
+
         $session->invoice_id = (int) $validated['invoice_id'];
+        $session->task_id = $task->id;
         $session->save();
 
         return response()->json([
@@ -280,5 +303,100 @@ class TimerSessionController extends Controller
             ->whereKey($invoiceId);
 
         abort_unless($invoiceQuery->exists(), 403, 'Invoice does not belong to this user.');
+    }
+
+    private function findProjectForActorOrFail(int $projectId): Project
+    {
+        $project = Project::query()
+            ->where('user_id', Auth::id())
+            ->whereKey($projectId)
+            ->first();
+
+        abort_unless($project !== null, 404, 'Project not found.');
+
+        return $project;
+    }
+
+    private function findDefaultTaskForProject(Project $project): Task
+    {
+        $defaultTask = Task::query()
+            ->where('project_id', $project->id)
+            ->where('is_default', true)
+            ->where('is_active', true)
+            ->first();
+
+        if ($defaultTask) {
+            return $defaultTask;
+        }
+
+        $firstTask = Task::query()
+            ->where('project_id', $project->id)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
+
+        if ($firstTask) {
+            return $firstTask;
+        }
+
+        abort(422, 'Create at least one active task in the selected project before starting a timer session.');
+    }
+
+    private function resolveInvoiceTaskForSession(Invoice $invoice, TimerSession $session, ?int $taskId = null): Task
+    {
+        if ($invoice->client_id === null) {
+            abort(422, 'Assign a client to the invoice before submitting timer sessions.');
+        }
+
+        if ($taskId !== null) {
+            $selectedTask = Task::query()
+                ->whereKey($taskId)
+                ->where('is_active', true)
+                ->first();
+
+            if (!$selectedTask || (int) $selectedTask->client_id !== (int) $invoice->client_id) {
+                abort(422, 'Selected task does not belong to the invoice client.');
+            }
+
+            return $selectedTask;
+        }
+
+        if ($session->task_id !== null) {
+            $existingTask = Task::query()
+                ->whereKey($session->task_id)
+                ->where('is_active', true)
+                ->first();
+
+            if ($existingTask && (int) $existingTask->client_id === (int) $invoice->client_id) {
+                return $existingTask;
+            }
+        }
+
+        return $this->findDefaultTaskForClient((int) $invoice->client_id);
+    }
+
+    private function findDefaultTaskForClient(int $clientId): Task
+    {
+        $defaultTask = Task::query()
+            ->where('client_id', $clientId)
+            ->where('is_default', true)
+            ->where('is_active', true)
+            ->first();
+
+        if ($defaultTask) {
+            return $defaultTask;
+        }
+
+        $firstTask = Task::query()
+            ->where('client_id', $clientId)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
+
+        if ($firstTask) {
+            return $firstTask;
+        }
+
+        abort(422, 'Create at least one active task for this invoice client before submitting sessions.');
     }
 }

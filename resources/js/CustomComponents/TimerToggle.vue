@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const isRunning = ref(false);
 const isPaused = ref(false);
@@ -13,6 +13,7 @@ const historySessions = ref([]);
 const currentInvoice = ref(null);
 const clients = ref([]);
 const selectedClientId = ref('');
+const selectedProjectId = ref('');
 const invoiceNotes = ref('');
 const pendingSessionId = ref(null);
 const isCreatingInvoiceFlowOpen = ref(false);
@@ -23,6 +24,17 @@ let runningStartedAtMs = null;
 
 const isInvoiceFinalized = computed(() => currentInvoice.value?.status === 'finalized');
 const shouldShowInvoiceSetup = computed(() => !currentInvoice.value || isCreatingInvoiceFlowOpen.value);
+const currentInvoiceProjects = computed(() => {
+    const invoiceClientId = currentInvoice.value?.client?.id;
+
+    if (!invoiceClientId) {
+        return [];
+    }
+
+    const client = (clients.value || []).find((item) => Number(item.id) === Number(invoiceClientId));
+
+    return (client?.projects || []).filter((project) => project?.is_active !== false);
+});
 
 const formattedElapsed = computed(() => {
     const hours = Math.floor(elapsedSeconds.value / 3600);
@@ -218,10 +230,17 @@ async function startTimer() {
         return;
     }
 
+    if (!selectedProjectId.value) {
+        statusMessage.value = 'Select a project before starting a timer session.';
+        return;
+    }
+
     isLoading.value = true;
 
     try {
-        const response = await axios.post('/timer/start');
+        const response = await axios.post('/timer/start', {
+            project_id: Number(selectedProjectId.value),
+        });
 
         statusMessage.value = response.data.message;
         pendingSessionId.value = null;
@@ -344,6 +363,25 @@ function cancelInvoiceCreateFlow() {
     invoiceNotes.value = '';
 }
 
+function ensureSelectedProject() {
+    const availableProjects = currentInvoiceProjects.value || [];
+
+    if (!availableProjects.length) {
+        selectedProjectId.value = '';
+        return;
+    }
+
+    const exists = availableProjects.some((project) => String(project.id) === selectedProjectId.value);
+
+    if (!exists) {
+        selectedProjectId.value = String(availableProjects[0].id);
+    }
+}
+
+watch(currentInvoiceProjects, () => {
+    ensureSelectedProject();
+});
+
 onMounted(() => {
     loadClients();
     loadStatus();
@@ -458,6 +496,27 @@ onBeforeUnmount(() => {
         <h2 class="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white mt-3">
             {{ formattedElapsed }}
         </h2>
+
+        <div class="mt-4">
+            <label class="text-xs font-medium text-gray-700 dark:text-gray-200">Project for new timer sessions</label>
+            <select
+                v-model="selectedProjectId"
+                class="mt-1 w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                :disabled="!currentInvoice || isRunning || isPaused"
+            >
+                <option value="">Select project</option>
+                <option
+                    v-for="project in currentInvoiceProjects"
+                    :key="project.id"
+                    :value="String(project.id)"
+                >
+                    {{ project.name }}
+                </option>
+            </select>
+            <p v-if="currentInvoice && currentInvoiceProjects.length === 0" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                This invoice client has no active projects. Create one before starting a timer session.
+            </p>
+        </div>
 
         <div class="mt-6 flex items-center gap-3">
             <button

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
@@ -9,6 +9,10 @@ const props = defineProps({
         required: true,
     },
     assignedSessions: {
+        type: Array,
+        default: () => [],
+    },
+    clientTasks: {
         type: Array,
         default: () => [],
     },
@@ -37,6 +41,7 @@ const props = defineProps({
 
 const invoice = ref(props.invoice);
 const assignedSessions = ref(props.assignedSessions);
+const clientTasks = ref(props.clientTasks || []);
 const availableSessions = ref(props.availableSessions);
 const expenses = ref(props.expenses);
 const summary = ref(props.summary);
@@ -53,6 +58,7 @@ const isDeletingInvoice = ref(false);
 const isSavingDiscount = ref(false);
 const savingSessionDateIds = ref([]);
 const savingSessionDurationIds = ref([]);
+const savingSessionTaskIds = ref([]);
 const editingSessionDurationId = ref(null);
 const sessionDateDrafts = ref(
     Object.fromEntries(
@@ -77,6 +83,11 @@ const sessionDurationDrafts = ref(
         (props.assignedSessions || []).map((session) => [session.id, getSessionDurationHms(session)])
     )
 );
+const sessionTaskDrafts = ref(
+    Object.fromEntries(
+        (props.assignedSessions || []).map((session) => [session.id, session?.task_id ? String(session.task_id) : ''])
+    )
+);
 const isInlineTimerRunning = ref(false);
 const isInlineTimerPaused = ref(false);
 const inlineElapsedSeconds = ref(0);
@@ -85,8 +96,146 @@ const expenseName = ref('');
 const expenseDescription = ref('');
 const expenseAmount = ref('');
 const manualDurationMinutes = ref('');
+const selectedInlineProjectId = ref('');
+const selectedInlineTaskId = ref('');
+const selectedManualProjectId = ref('');
+const selectedManualTaskId = ref('');
 const discountType = ref(invoice.value?.discount_type || '');
 const discountValue = ref(Number(invoice.value?.discount_value ?? 0));
+
+function formatTaskOption(task) {
+    if (!task) {
+        return 'Unknown task';
+    }
+
+    if (task.project?.name) {
+        return `${task.name} (${task.project.name})`;
+    }
+
+    return task.name;
+}
+
+const clientProjects = computed(() => {
+    const projectMap = new Map();
+
+    (clientTasks.value || []).forEach((task) => {
+        if (!task?.project?.id) {
+            return;
+        }
+
+        if (!projectMap.has(task.project.id)) {
+            projectMap.set(task.project.id, {
+                id: task.project.id,
+                name: task.project.name,
+            });
+        }
+    });
+
+    return Array.from(projectMap.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+});
+
+function tasksForProject(projectId) {
+    if (!projectId) {
+        return [];
+    }
+
+    return (clientTasks.value || []).filter(
+        (task) => String(task.project_id) === String(projectId) && task?.is_active !== false
+    );
+}
+
+function getDefaultTaskIdForProject(projectId) {
+    const scopedTasks = tasksForProject(projectId);
+    const defaultTask = scopedTasks.find((task) => task?.is_default === true);
+
+    if (defaultTask?.id) {
+        return String(defaultTask.id);
+    }
+
+    return scopedTasks[0]?.id ? String(scopedTasks[0].id) : '';
+}
+
+function getDefaultClientTaskId() {
+    const defaultTask = (clientTasks.value || []).find((task) => task?.is_default === true && task?.is_active !== false);
+
+    if (defaultTask?.id) {
+        return String(defaultTask.id);
+    }
+
+    const firstActiveTask = (clientTasks.value || []).find((task) => task?.is_active !== false);
+
+    return firstActiveTask?.id ? String(firstActiveTask.id) : '';
+}
+
+function ensureInlineTaskSelection() {
+    if (!selectedInlineProjectId.value) {
+        selectedInlineTaskId.value = '';
+        return;
+    }
+
+    if (selectedInlineTaskId.value) {
+        const exists = tasksForProject(selectedInlineProjectId.value).some((task) => String(task.id) === selectedInlineTaskId.value);
+
+        if (exists) {
+            return;
+        }
+    }
+
+    selectedInlineTaskId.value = getDefaultTaskIdForProject(selectedInlineProjectId.value);
+}
+
+function ensureManualTaskSelection() {
+    if (!selectedManualProjectId.value) {
+        selectedManualTaskId.value = '';
+        return;
+    }
+
+    if (selectedManualTaskId.value) {
+        const exists = tasksForProject(selectedManualProjectId.value).some((task) => String(task.id) === selectedManualTaskId.value);
+
+        if (exists) {
+            return;
+        }
+    }
+
+    selectedManualTaskId.value = getDefaultTaskIdForProject(selectedManualProjectId.value);
+}
+
+function ensureInlineProjectSelection() {
+    const projects = clientProjects.value || [];
+
+    if (!projects.length) {
+        selectedInlineProjectId.value = '';
+        selectedInlineTaskId.value = '';
+        return;
+    }
+
+    const exists = projects.some((project) => String(project.id) === selectedInlineProjectId.value);
+
+    if (!exists) {
+        selectedInlineProjectId.value = String(projects[0].id);
+    }
+
+    ensureInlineTaskSelection();
+}
+
+function ensureManualProjectSelection() {
+    const projects = clientProjects.value || [];
+
+    if (!projects.length) {
+        selectedManualProjectId.value = '';
+        selectedManualTaskId.value = '';
+        return;
+    }
+
+    const exists = projects.some((project) => String(project.id) === selectedManualProjectId.value);
+
+    if (!exists) {
+        selectedManualProjectId.value = String(projects[0].id);
+    }
+
+    ensureManualTaskSelection();
+}
 
 function getDefaultManualStartedAt() {
     const now = new Date();
@@ -104,6 +253,9 @@ let inlineRunningStartedAtMs = null;
 
 const isFinalized = computed(() => invoice.value?.is_finalized === true);
 const isPaid = computed(() => invoice.value?.status === 'paid');
+const hasActiveClientTasks = computed(() => {
+    return (clientTasks.value || []).some((task) => task?.is_active !== false);
+});
 const sortedAssignedSessions = computed(() => {
     return [...assignedSessions.value].sort((a, b) => {
         const aDate = new Date(a?.started_at || a?.created_at || 0).getTime();
@@ -216,6 +368,16 @@ function applyPayload(data) {
     sessionDurationDrafts.value = Object.fromEntries(
         assignedSessions.value.map((session) => [session.id, getSessionDurationHms(session)])
     );
+    sessionTaskDrafts.value = Object.fromEntries(
+        assignedSessions.value.map((session) => [session.id, session?.task_id ? String(session.task_id) : ''])
+    );
+    if (Array.isArray(data.client_tasks)) {
+        clientTasks.value = data.client_tasks;
+    }
+    ensureInlineProjectSelection();
+    ensureManualProjectSelection();
+    ensureInlineTaskSelection();
+    ensureManualTaskSelection();
     availableSessions.value = data.available_sessions || [];
     expenses.value = data.expenses || [];
     summary.value = data.summary || {
@@ -275,6 +437,10 @@ function isSavingSessionDuration(sessionId) {
     return savingSessionDurationIds.value.includes(sessionId);
 }
 
+function isSavingSessionTask(sessionId) {
+    return savingSessionTaskIds.value.includes(sessionId);
+}
+
 function isSessionStopped(session) {
     return Boolean(session?.stopped_at);
 }
@@ -306,6 +472,12 @@ function getSessionDurationDraft(session) {
     const draft = sessionDurationDrafts.value[session.id];
 
     return draft === undefined ? getSessionDurationHms(session) : draft;
+}
+
+function getSessionTaskDraft(session) {
+    const draft = sessionTaskDrafts.value[session.id];
+
+    return draft === undefined ? (session?.task_id ? String(session.task_id) : '') : draft;
 }
 
 function parseDurationHms(value) {
@@ -400,6 +572,37 @@ async function updateSessionDuration(session) {
     }
 }
 
+async function updateSessionTask(session) {
+    if (!hasActiveClientTasks.value) {
+        statusMessage.value = 'Create at least one active task for this client before updating session tasks.';
+        return;
+    }
+
+    const taskId = getSessionTaskDraft(session);
+
+    if (!taskId || isSavingSessionTask(session.id) || isFinalized.value) {
+        if (!taskId) {
+            statusMessage.value = 'Select a task before saving.';
+        }
+        return;
+    }
+
+    savingSessionTaskIds.value.push(session.id);
+
+    try {
+        const response = await axios.post(`/invoices/${invoice.value.id}/sessions/${session.id}/task`, {
+            task_id: Number(taskId),
+        });
+
+        applyPayload(response.data);
+        statusMessage.value = response.data.message || 'Session task updated.';
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to update session task.';
+    } finally {
+        savingSessionTaskIds.value = savingSessionTaskIds.value.filter((id) => id !== session.id);
+    }
+}
+
 async function addSession(sessionId) {
     if (isFinalized.value || isBusy(sessionId)) {
         return;
@@ -426,8 +629,18 @@ async function createManualSession() {
         return;
     }
 
+    if (!hasActiveClientTasks.value) {
+        statusMessage.value = 'Create at least one active task for this client before adding manual sessions.';
+        return;
+    }
+
     if (!manualDurationMinutes.value || Number(manualDurationMinutes.value) <= 0) {
         statusMessage.value = 'Enter a manual session duration greater than 0 minutes.';
+        return;
+    }
+
+    if (!selectedManualProjectId.value) {
+        statusMessage.value = 'Select a project before creating a manual session.';
         return;
     }
 
@@ -437,6 +650,8 @@ async function createManualSession() {
         const response = await axios.post(`/invoices/${invoice.value.id}/sessions/manual`, {
             duration_minutes: Number(manualDurationMinutes.value),
             started_at: manualStartedAt.value || null,
+            project_id: Number(selectedManualProjectId.value),
+            task_id: selectedManualTaskId.value ? Number(selectedManualTaskId.value) : null,
         });
 
         applyPayload(response.data);
@@ -456,6 +671,7 @@ async function loadInlineTimerStatus() {
 
         if (response.data.active && response.data.session) {
             inlineActiveSessionId.value = response.data.session.id;
+            selectedInlineTaskId.value = response.data.session?.task_id ? String(response.data.session.task_id) : selectedInlineTaskId.value;
             isInlineTimerRunning.value = Boolean(response.data.running);
             isInlineTimerPaused.value = Boolean(response.data.paused);
 
@@ -488,10 +704,23 @@ async function startInlineTimer() {
         return;
     }
 
+    if (!hasActiveClientTasks.value) {
+        statusMessage.value = 'Create at least one active task for this client before starting timer sessions.';
+        return;
+    }
+
+    if (!selectedInlineProjectId.value) {
+        statusMessage.value = 'Select a project before starting a timer session.';
+        return;
+    }
+
     isInlineTimerLoading.value = true;
 
     try {
-        const response = await axios.post(`/invoices/${invoice.value.id}/timer/start`);
+        const response = await axios.post(`/invoices/${invoice.value.id}/timer/start`, {
+            project_id: Number(selectedInlineProjectId.value),
+            task_id: selectedInlineTaskId.value ? Number(selectedInlineTaskId.value) : null,
+        });
         await loadInlineTimerStatus();
         statusMessage.value = response.data.message || 'Timer started for this invoice.';
     } catch (error) {
@@ -785,7 +1014,24 @@ async function saveInvoiceDiscount() {
 }
 
 onMounted(() => {
+    ensureInlineProjectSelection();
+    ensureManualProjectSelection();
+    ensureInlineTaskSelection();
+    ensureManualTaskSelection();
     loadInlineTimerStatus();
+});
+
+watch(clientTasks, () => {
+    ensureInlineProjectSelection();
+    ensureManualProjectSelection();
+}, { deep: true });
+
+watch(selectedInlineProjectId, () => {
+    ensureInlineTaskSelection();
+});
+
+watch(selectedManualProjectId, () => {
+    ensureManualTaskSelection();
 });
 
 onBeforeUnmount(() => {
@@ -986,6 +1232,40 @@ onBeforeUnmount(() => {
                         <p class="mt-2 text-3xl font-bold text-gray-900 dark:text-white">
                             {{ formatDuration(inlineElapsedSeconds) }}
                         </p>
+                        <div class="mt-2">
+                            <label class="text-xs font-medium text-gray-700 dark:text-gray-200">Project for new timer sessions</label>
+                            <select
+                                v-model="selectedInlineProjectId"
+                                class="mt-1 w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                :disabled="isFinalized || isInlineTimerLoading || isInlineTimerRunning || isInlineTimerPaused || !clientProjects.length"
+                            >
+                                <option value="">Select project</option>
+                                <option
+                                    v-for="project in clientProjects"
+                                    :key="project.id"
+                                    :value="String(project.id)"
+                                >
+                                    {{ project.name }}
+                                </option>
+                            </select>
+                        </div>
+                        <div class="mt-2">
+                            <label class="text-xs font-medium text-gray-700 dark:text-gray-200">Task for new timer sessions</label>
+                            <select
+                                v-model="selectedInlineTaskId"
+                                class="mt-1 w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                :disabled="isFinalized || isInlineTimerLoading || isInlineTimerRunning || isInlineTimerPaused || !selectedInlineProjectId"
+                            >
+                                <option value="">Use project default task</option>
+                                <option
+                                    v-for="task in tasksForProject(selectedInlineProjectId)"
+                                    :key="task.id"
+                                    :value="String(task.id)"
+                                >
+                                    {{ formatTaskOption(task) }}
+                                </option>
+                            </select>
+                        </div>
                         <p v-if="inlineActiveSessionId" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                             Session #{{ inlineActiveSessionId }}
                         </p>
@@ -1009,12 +1289,16 @@ onBeforeUnmount(() => {
                             {{ isInlineTimerLoading ? 'Working...' : 'Submit' }}
                         </button>
 
+                        <p v-if="!hasActiveClientTasks" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                            Create an active task for this client before starting invoice timer sessions.
+                        </p>
+
                         <p class="mt-2 text-xs text-gray-600 dark:text-gray-300">
                             {{ isInlineTimerRunning ? 'Recording in progress' : isInlineTimerPaused ? 'Paused' : 'Not recording' }}
                         </p>
                     </div>
 
-                    <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="mt-4 grid grid-cols-1 sm:grid-cols-5 gap-3">
                         <input
                             v-model="manualDurationMinutes"
                             type="number"
@@ -1030,15 +1314,47 @@ onBeforeUnmount(() => {
                             class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
                             :disabled="isFinalized || isSubmittingManualSession"
                         />
+                        <select
+                            v-model="selectedManualProjectId"
+                            class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                            :disabled="isFinalized || isSubmittingManualSession || !clientProjects.length"
+                        >
+                            <option value="">Select project</option>
+                            <option
+                                v-for="project in clientProjects"
+                                :key="project.id"
+                                :value="String(project.id)"
+                            >
+                                {{ project.name }}
+                            </option>
+                        </select>
+                        <select
+                            v-model="selectedManualTaskId"
+                            class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                            :disabled="isFinalized || isSubmittingManualSession || !selectedManualProjectId"
+                        >
+                            <option value="">Use project default task</option>
+                            <option
+                                v-for="task in tasksForProject(selectedManualProjectId)"
+                                :key="task.id"
+                                :value="String(task.id)"
+                            >
+                                {{ formatTaskOption(task) }}
+                            </option>
+                        </select>
                         <button
                             type="button"
                             class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
-                            :disabled="isFinalized || isSubmittingManualSession"
+                            :disabled="isFinalized || isSubmittingManualSession || !selectedManualProjectId"
                             @click="createManualSession"
                         >
                             {{ isSubmittingManualSession ? 'Adding Session...' : 'Add Session' }}
                         </button>
                     </div>
+
+                    <p v-if="!hasActiveClientTasks" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                        Manual sessions require at least one active task on this client.
+                    </p>
 
                     <p v-if="assignedSessions.length === 0" class="mt-3 text-sm text-gray-600 dark:text-gray-300">
                         No sessions assigned yet.
@@ -1055,6 +1371,31 @@ onBeforeUnmount(() => {
                                     <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatSessionHeaderDate(session.started_at || session.created_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Started: {{ formatDateTime(session.started_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Stopped: {{ formatDateTime(session.stopped_at) }}</p>
+                                    <p class="text-xs text-gray-600 dark:text-gray-300">Task: {{ session.task?.name || 'General' }}<span v-if="session.task?.project"> in {{ session.task.project.name }}</span></p>
+                                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                                        <select
+                                            v-model="sessionTaskDrafts[session.id]"
+                                            class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-white"
+                                            :disabled="isFinalized || isSavingSessionTask(session.id) || !hasActiveClientTasks"
+                                        >
+                                            <option value="">Select task</option>
+                                            <option
+                                                v-for="task in clientTasks"
+                                                :key="task.id"
+                                                :value="String(task.id)"
+                                            >
+                                                {{ formatTaskOption(task) }}
+                                            </option>
+                                        </select>
+                                        <button
+                                            type="button"
+                                            class="rounded-lg bg-indigo-600 px-2 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
+                                            :disabled="isFinalized || isSavingSessionTask(session.id) || !hasActiveClientTasks"
+                                            @click="updateSessionTask(session)"
+                                        >
+                                            {{ isSavingSessionTask(session.id) ? 'Saving...' : 'Save Task' }}
+                                        </button>
+                                    </div>
                                     <div class="mt-2 flex items-center gap-2">
                                         <input
                                             v-model="sessionDateDrafts[session.id]"
