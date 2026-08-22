@@ -257,7 +257,7 @@ function openFinancialYear(startYear) {
                     </div>
 
                     <div class="mt-6">
-                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Sent, not paid</h3>
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Sent</h3>
                         <p class="mt-1 text-xs text-gray-600 dark:text-gray-300">
                             Calculated from {{ Number(convertedTaxSummary.unpaid_project_total_invoice_count || 0) }} invoices.
                         </p>

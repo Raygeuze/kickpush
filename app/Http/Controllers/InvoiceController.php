@@ -125,6 +125,7 @@ class InvoiceController extends Controller
         }
 
         $invoices = $invoicesQuery->get();
+        $clientYearSummaries = $this->indexClientFinancialYearSummaries($selectedFinancialYear, $selectedClientId);
 
         return Inertia::render('Invoices/Index', [
             'clients' => $clients,
@@ -138,8 +139,104 @@ class InvoiceController extends Controller
             'currentFinancialYearId' => $currentFinancialYear->id,
             'selectedFinancialYearId' => $selectedFinancialYear->id,
             'selectedFinancialYearLabel' => $selectedFinancialYear->label,
+            'clientYearSummaries' => $clientYearSummaries,
             'invoices' => $invoices->map(fn (Invoice $invoice) => $this->formatInvoice($invoice))->values(),
         ]);
+    }
+
+    private function indexClientFinancialYearSummaries(FinancialYear $financialYear, ?int $selectedClientId): array
+    {
+        $invoicesQuery = $this->applyActorScope(Invoice::query())
+            ->with('client:id,name,currency,hourly_rate')
+            ->where('financial_year_id', $financialYear->id);
+
+        if ($selectedClientId) {
+            $invoicesQuery->where('client_id', $selectedClientId);
+        }
+
+        $invoices = $invoicesQuery->get([
+            'id',
+            'client_id',
+            'status',
+            'due_at',
+        ]);
+
+        if ($invoices->isEmpty()) {
+            return [];
+        }
+
+        $invoiceIds = $invoices->pluck('id')->all();
+        $sessionTotals = $this->applyActorScopeToSessions(TimerSession::query())
+            ->whereIn('invoice_id', $invoiceIds)
+            ->whereNotNull('stopped_at')
+            ->selectRaw('invoice_id, COUNT(*) as sessions_count, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
+            ->groupBy('invoice_id')
+            ->get()
+            ->keyBy('invoice_id');
+
+        $summaries = [];
+
+        foreach ($invoices as $invoice) {
+            $clientId = $invoice->client_id ? (int) $invoice->client_id : 0;
+
+            if (!array_key_exists($clientId, $summaries)) {
+                $summaries[$clientId] = [
+                    'client_id' => $invoice->client_id,
+                    'client_name' => $invoice->client ? (string) $invoice->client->name : 'Unassigned Client',
+                    'currency' => $this->normalizeCurrencyCode($invoice->client ? (string) $invoice->client->currency : null) ?? 'USD',
+                    'paid' => [
+                        'invoice_count' => 0,
+                        'billable_time_amount' => 0.0,
+                    ],
+                    'sent_not_paid' => [
+                        'invoice_count' => 0,
+                        'billable_time_amount' => 0.0,
+                    ],
+                    'draft' => [
+                        'invoice_count' => 0,
+                        'billable_time_amount' => 0.0,
+                    ],
+                    'overdue' => [
+                        'invoice_count' => 0,
+                        'billable_time_amount' => 0.0,
+                    ],
+                ];
+            }
+
+            $sessionRow = $sessionTotals[$invoice->id] ?? null;
+            $durationSeconds = (int) ($sessionRow->total_duration_seconds ?? 0);
+            $hourlyRate = $invoice->client ? (float) $invoice->client->hourly_rate : 0.0;
+            $totalHours = round($durationSeconds / 3600, 2);
+            $billableTimeAmount = round($totalHours * $hourlyRate, 2);
+
+            $bucket = 'draft';
+
+            if ($invoice->status === 'paid') {
+                $bucket = 'paid';
+            } elseif ($invoice->status === 'finalized') {
+                $bucket = 'sent_not_paid';
+            }
+
+            $summaries[$clientId][$bucket]['invoice_count'] += 1;
+            $summaries[$clientId][$bucket]['billable_time_amount'] += $billableTimeAmount;
+
+            if ($invoice->status !== 'paid' && $invoice->due_at !== null && $invoice->due_at->lt(now())) {
+                $summaries[$clientId]['overdue']['invoice_count'] += 1;
+                $summaries[$clientId]['overdue']['billable_time_amount'] += $billableTimeAmount;
+            }
+        }
+
+        return collect($summaries)
+            ->map(function (array $summary): array {
+                foreach (['paid', 'sent_not_paid', 'draft', 'overdue'] as $bucket) {
+                    $summary[$bucket]['billable_time_amount'] = round((float) $summary[$bucket]['billable_time_amount'], 2);
+                }
+
+                return $summary;
+            })
+            ->sortBy(fn (array $summary): string => strtolower((string) ($summary['client_name'] ?? '')))
+            ->values()
+            ->all();
     }
 
     public function show(int $invoiceId): Response

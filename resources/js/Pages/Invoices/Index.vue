@@ -32,6 +32,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    clientYearSummaries: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const selectedClientId = ref(props.selectedClientId ? String(props.selectedClientId) : '');
@@ -83,6 +87,24 @@ function formatDate(value) {
     }
 
     return new Date(value).toLocaleDateString();
+}
+
+function formatCurrency(amount, currencyCode = 'USD') {
+    const value = Number(amount || 0);
+    const code = /^[A-Z]{3}$/.test(String(currencyCode || '').toUpperCase())
+        ? String(currencyCode || 'USD').toUpperCase()
+        : 'USD';
+
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: code,
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(value);
+    } catch {
+        return `${code} ${value.toFixed(2)}`;
+    }
 }
 
 function isMarkingPaid(invoiceId) {
@@ -218,6 +240,50 @@ async function deleteInvoice(invoiceId) {
                         <p class="text-sm text-gray-600 dark:text-gray-300">{{ invoicesList.length }} invoice(s)</p>
                     </div>
                     <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">Financial year: {{ selectedFinancialYearLabel }}</p>
+
+                    <div class="mt-4">
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Client Year Snapshot</h3>
+
+                        <p v-if="clientYearSummaries.length === 0" class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                            No client summaries available for this financial year filter.
+                        </p>
+
+                        <div v-else class="mt-3 grid grid-cols-1 gap-3">
+                            <div
+                                v-for="summary in clientYearSummaries"
+                                :key="`client-year-summary-${summary.client_id ?? 'unassigned'}`"
+                                class="rounded-xl border border-gray-200 dark:border-gray-700 p-4"
+                            >
+                                <div class="flex items-center justify-between gap-2">
+                                    <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ summary.client_name }}</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ String(summary.currency || 'USD').toUpperCase() }}</p>
+                                </div>
+
+                                <div class="mt-3 grid grid-cols-1 lg:grid-cols-4 gap-2 text-xs">
+                                    <div class="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 p-2">
+                                        <p class="font-semibold text-emerald-700 dark:text-emerald-300">Paid</p>
+                                        <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.paid?.invoice_count || 0) }} invoices</p>
+                                        <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.paid?.billable_time_amount || 0, summary.currency) }}</p>
+                                    </div>
+                                    <div class="rounded-lg bg-cyan-50 dark:bg-cyan-900/20 p-2">
+                                        <p class="font-semibold text-cyan-700 dark:text-cyan-300">Sent</p>
+                                        <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.sent_not_paid?.invoice_count || 0) }} invoices</p>
+                                        <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.sent_not_paid?.billable_time_amount || 0, summary.currency) }}</p>
+                                    </div>
+                                    <div class="rounded-lg bg-indigo-50 dark:bg-indigo-900/20 p-2">
+                                        <p class="font-semibold text-indigo-700 dark:text-indigo-300">Draft invoices</p>
+                                        <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.draft?.invoice_count || 0) }} invoices</p>
+                                        <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.draft?.billable_time_amount || 0, summary.currency) }}</p>
+                                    </div>
+                                    <div class="rounded-lg bg-rose-50 dark:bg-rose-900/20 p-2">
+                                        <p class="font-semibold text-rose-700 dark:text-rose-300">Overdue</p>
+                                        <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.overdue?.invoice_count || 0) }} invoices</p>
+                                        <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.overdue?.billable_time_amount || 0, summary.currency) }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     <p v-if="invoicesList.length === 0" class="mt-4 text-sm text-gray-600 dark:text-gray-300">
                         No invoices found for this filter.
