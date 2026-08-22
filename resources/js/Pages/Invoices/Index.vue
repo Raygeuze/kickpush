@@ -271,7 +271,7 @@ async function deleteInvoice(invoiceId) {
                                         <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.sent_not_paid?.billable_time_amount || 0, summary.currency) }}</p>
                                     </div>
                                     <div class="rounded-lg bg-indigo-50 dark:bg-indigo-900/20 p-2">
-                                        <p class="font-semibold text-indigo-700 dark:text-indigo-300">Draft invoices</p>
+                                        <p class="font-semibold text-indigo-700 dark:text-indigo-300">In Progress</p>
                                         <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.draft?.invoice_count || 0) }} invoices</p>
                                         <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.draft?.billable_time_amount || 0, summary.currency) }}</p>
                                     </div>
