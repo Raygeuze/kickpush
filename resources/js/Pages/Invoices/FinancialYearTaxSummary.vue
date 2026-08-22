@@ -31,6 +31,10 @@ const props = defineProps({
             total_invoices: 0,
             converted_invoices: 0,
             missing_rate_invoices: 0,
+            paid_project_total_invoice_count: 0,
+            unpaid_project_total_invoice_count: 0,
+            uninvoiced_project_total_invoice_count: 0,
+            overdue_project_total_invoice_count: 0,
             billable_time_amount_converted: 0,
             total_expenses_amount_converted: 0,
             subtotal_amount_converted: 0,
@@ -49,6 +53,9 @@ const props = defineProps({
             total_deductions_amount_converted: 0,
             net_amount_converted: 0,
             project_totals_converted: [],
+            unpaid_project_totals_converted: [],
+            uninvoiced_project_totals_converted: [],
+            overdue_project_totals_converted: [],
         }),
     },
 });
@@ -66,6 +73,21 @@ const taxAndLevyItems = computed(() =>
 
 const projectTotals = computed(() => {
     const totals = props?.convertedTaxSummary?.project_totals_converted;
+    return Array.isArray(totals) ? totals : [];
+});
+
+const unpaidProjectTotals = computed(() => {
+    const totals = props?.convertedTaxSummary?.unpaid_project_totals_converted;
+    return Array.isArray(totals) ? totals : [];
+});
+
+const uninvoicedProjectTotals = computed(() => {
+    const totals = props?.convertedTaxSummary?.uninvoiced_project_totals_converted;
+    return Array.isArray(totals) ? totals : [];
+});
+
+const overdueProjectTotals = computed(() => {
+    const totals = props?.convertedTaxSummary?.overdue_project_totals_converted;
     return Array.isArray(totals) ? totals : [];
 });
 
@@ -200,7 +222,10 @@ function openFinancialYear(startYear) {
                     </div>
 
                     <div class="mt-5">
-                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Per Project Totals</h3>
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Paid Per Project Totals</h3>
+                        <p class="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                            Calculated from {{ Number(convertedTaxSummary.paid_project_total_invoice_count || 0) }} invoices.
+                        </p>
 
                         <div v-if="projectTotals.length > 0" class="mt-3 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
                             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
@@ -228,6 +253,111 @@ function openFinancialYear(startYear) {
 
                         <p v-else class="mt-3 text-sm text-gray-600 dark:text-gray-300">
                             No paid invoice sessions were found for this financial year, so there are no per-project totals yet.
+                        </p>
+                    </div>
+
+                    <div class="mt-6">
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Sent, not paid</h3>
+                        <p class="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                            Calculated from {{ Number(convertedTaxSummary.unpaid_project_total_invoice_count || 0) }} invoices.
+                        </p>
+
+                        <div v-if="unpaidProjectTotals.length > 0" class="mt-3 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                                <thead class="bg-gray-50 dark:bg-gray-800/60">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Project</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Sessions</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Tracked Time</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    <tr
+                                        v-for="project in unpaidProjectTotals"
+                                        :key="`fy-year-summary-unpaid-project-total-${project.project_id ?? 'unassigned'}-${project.project_name}`"
+                                    >
+                                        <td class="px-4 py-3 text-gray-700 dark:text-gray-200">{{ project.project_name || 'Unassigned Project' }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ Number(project.sessions_count || 0) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatDuration(project.total_duration_seconds || 0) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(project.billable_time_amount_converted || 0, convertedTaxCurrency) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p v-else class="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                            No finalized unpaid invoice sessions were found for this financial year.
+                        </p>
+                    </div>
+
+                    <div class="mt-6">
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Draft invoices</h3>
+                        <p class="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                            Calculated from {{ Number(convertedTaxSummary.uninvoiced_project_total_invoice_count || 0) }} invoices.
+                        </p>
+
+                        <div v-if="uninvoicedProjectTotals.length > 0" class="mt-3 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                                <thead class="bg-gray-50 dark:bg-gray-800/60">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Project</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Sessions</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Tracked Time</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    <tr
+                                        v-for="project in uninvoicedProjectTotals"
+                                        :key="`fy-year-summary-uninvoiced-project-total-${project.project_id ?? 'unassigned'}-${project.project_name}`"
+                                    >
+                                        <td class="px-4 py-3 text-gray-700 dark:text-gray-200">{{ project.project_name || 'Unassigned Project' }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ Number(project.sessions_count || 0) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatDuration(project.total_duration_seconds || 0) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(project.billable_time_amount_converted || 0, convertedTaxCurrency) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p v-else class="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                            No draft invoice sessions were found for this financial year.
+                        </p>
+                    </div>
+
+                    <div class="mt-6">
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Overdue</h3>
+                        <p class="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                            Calculated from {{ Number(convertedTaxSummary.overdue_project_total_invoice_count || 0) }} invoices.
+                        </p>
+
+                        <div v-if="overdueProjectTotals.length > 0" class="mt-3 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                                <thead class="bg-gray-50 dark:bg-gray-800/60">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Project</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Sessions</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Tracked Time</th>
+                                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    <tr
+                                        v-for="project in overdueProjectTotals"
+                                        :key="`fy-year-summary-overdue-project-total-${project.project_id ?? 'unassigned'}-${project.project_name}`"
+                                    >
+                                        <td class="px-4 py-3 text-gray-700 dark:text-gray-200">{{ project.project_name || 'Unassigned Project' }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ Number(project.sessions_count || 0) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatDuration(project.total_duration_seconds || 0) }}</td>
+                                        <td class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">{{ formatCurrency(project.billable_time_amount_converted || 0, convertedTaxCurrency) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p v-else class="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                            No overdue invoice sessions were found for this financial year.
                         </p>
                     </div>
                 </div>

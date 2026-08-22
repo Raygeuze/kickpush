@@ -1927,12 +1927,13 @@ class InvoiceController extends Controller
         $targetCurrency = $this->currencyForCountry($actor ? (string) $actor->country : null);
         $additionalTaxItems = $this->userAdditionalTaxItems();
 
-        $invoices = $this->applyActorScope(Invoice::query())
+        $allInvoices = $this->applyActorScope(Invoice::query())
             ->where('financial_year_id', $financialYear->id)
-            ->where('status', 'paid')
             ->with('client:id,hourly_rate,currency')
             ->get([
                 'id',
+                'status',
+                'due_at',
                 'client_id',
                 'discount_type',
                 'discount_value',
@@ -1941,12 +1942,50 @@ class InvoiceController extends Controller
                 'conversion_rate',
             ]);
 
-        if ($invoices->isEmpty()) {
+        $paidInvoices = $allInvoices->where('status', 'paid')->values();
+        $unpaidInvoices = $allInvoices->where('status', 'finalized')->values();
+        $uninvoicedInvoices = $allInvoices->filter(fn (Invoice $invoice): bool => !in_array($invoice->status, ['finalized', 'paid'], true))->values();
+        $overdueInvoices = $allInvoices->filter(function (Invoice $invoice): bool {
+            if ($invoice->status === 'paid' || $invoice->due_at === null) {
+                return false;
+            }
+
+            return $invoice->due_at->lt(now());
+        })->values();
+
+        $rateCache = [];
+        $paidInvoiceRates = $this->buildConvertedInvoiceRateMap($paidInvoices, $targetCurrency, $rateCache);
+        $unpaidInvoiceRates = $this->buildConvertedInvoiceRateMap($unpaidInvoices, $targetCurrency, $rateCache);
+        $uninvoicedInvoiceRates = $this->buildConvertedInvoiceRateMap($uninvoicedInvoices, $targetCurrency, $rateCache);
+        $overdueInvoiceRates = $this->buildConvertedInvoiceRateMap($overdueInvoices, $targetCurrency, $rateCache);
+
+        $paidProjectTotalsConverted = $this->buildFinancialYearProjectTotalsConverted(
+            array_keys($paidInvoiceRates),
+            $paidInvoiceRates
+        );
+        $unpaidProjectTotalsConverted = $this->buildFinancialYearProjectTotalsConverted(
+            array_keys($unpaidInvoiceRates),
+            $unpaidInvoiceRates
+        );
+        $uninvoicedProjectTotalsConverted = $this->buildFinancialYearProjectTotalsConverted(
+            array_keys($uninvoicedInvoiceRates),
+            $uninvoicedInvoiceRates
+        );
+        $overdueProjectTotalsConverted = $this->buildFinancialYearProjectTotalsConverted(
+            array_keys($overdueInvoiceRates),
+            $overdueInvoiceRates
+        );
+
+        if ($paidInvoices->isEmpty()) {
             return [
                 'target_currency' => $targetCurrency,
                 'total_invoices' => 0,
                 'converted_invoices' => 0,
                 'missing_rate_invoices' => 0,
+                'paid_project_total_invoice_count' => count($paidInvoiceRates),
+                'unpaid_project_total_invoice_count' => count($unpaidInvoiceRates),
+                'uninvoiced_project_total_invoice_count' => count($uninvoicedInvoiceRates),
+                'overdue_project_total_invoice_count' => count($overdueInvoiceRates),
                 'billable_time_amount_converted' => 0.0,
                 'total_expenses_amount_converted' => 0.0,
                 'subtotal_amount_converted' => 0.0,
@@ -1964,10 +2003,14 @@ class InvoiceController extends Controller
                 'allocation_total_converted' => 0.0,
                 'total_deductions_amount_converted' => 0.0,
                 'net_amount_converted' => 0.0,
+                'project_totals_converted' => $paidProjectTotalsConverted,
+                'unpaid_project_totals_converted' => $unpaidProjectTotalsConverted,
+                'uninvoiced_project_totals_converted' => $uninvoicedProjectTotalsConverted,
+                'overdue_project_totals_converted' => $overdueProjectTotalsConverted,
             ];
         }
 
-        $invoiceIds = $invoices->pluck('id')->all();
+        $invoiceIds = $paidInvoices->pluck('id')->all();
 
         $sessionTotals = $this->applyActorScopeToSessions(TimerSession::query())
             ->whereIn('invoice_id', $invoiceIds)
@@ -1986,7 +2029,6 @@ class InvoiceController extends Controller
 
         $convertedInvoices = 0;
         $missingRateInvoices = 0;
-        $rateCache = [];
         $billableTimeAmountConverted = 0.0;
         $totalExpensesAmountConverted = 0.0;
         $subtotalAmountConverted = 0.0;
@@ -1995,10 +2037,10 @@ class InvoiceController extends Controller
         $allocationTotalConverted = 0.0;
         $additionalTaxItemsConverted = [];
 
-        foreach ($invoices as $invoice) {
+        foreach ($paidInvoices as $invoice) {
             $sourceCurrency = $this->normalizeCurrencyCode($invoice->conversion_source_currency)
                 ?? $this->normalizeCurrencyCode($invoice->client ? (string) $invoice->client->currency : null);
-            $conversionRate = $this->invoiceConversionRateToTarget($invoice, $sourceCurrency, $targetCurrency, $rateCache);
+            $conversionRate = $paidInvoiceRates[$invoice->id]['conversion_rate'] ?? null;
 
             if ($sourceCurrency === null || $conversionRate === null || $conversionRate <= 0) {
                 $missingRateInvoices++;
@@ -2077,9 +2119,13 @@ class InvoiceController extends Controller
 
         return [
             'target_currency' => $targetCurrency,
-            'total_invoices' => $invoices->count(),
+            'total_invoices' => $paidInvoices->count(),
             'converted_invoices' => $convertedInvoices,
             'missing_rate_invoices' => $missingRateInvoices,
+            'paid_project_total_invoice_count' => count($paidInvoiceRates),
+            'unpaid_project_total_invoice_count' => count($unpaidInvoiceRates),
+            'uninvoiced_project_total_invoice_count' => count($uninvoicedInvoiceRates),
+            'overdue_project_total_invoice_count' => count($overdueInvoiceRates),
             'billable_time_amount_converted' => round($billableTimeAmountConverted, 2),
             'total_expenses_amount_converted' => round($totalExpensesAmountConverted, 2),
             'subtotal_amount_converted' => round($subtotalAmountConverted, 2),
@@ -2097,7 +2143,98 @@ class InvoiceController extends Controller
             'allocation_total_converted' => round($allocationTotalConverted, 2),
             'total_deductions_amount_converted' => round($totalDeductionsAmountConverted, 2),
             'net_amount_converted' => round($netAmountConverted, 2),
+            'project_totals_converted' => $paidProjectTotalsConverted,
+            'unpaid_project_totals_converted' => $unpaidProjectTotalsConverted,
+            'uninvoiced_project_totals_converted' => $uninvoicedProjectTotalsConverted,
+            'overdue_project_totals_converted' => $overdueProjectTotalsConverted,
         ];
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, Invoice> $invoices
+     * @param array<string, float|null> $rateCache
+     * @return array<int, array{hourly_rate: float, conversion_rate: float}>
+     */
+    private function buildConvertedInvoiceRateMap($invoices, string $targetCurrency, array &$rateCache): array
+    {
+        $rates = [];
+
+        foreach ($invoices as $invoice) {
+            $sourceCurrency = $this->normalizeCurrencyCode($invoice->conversion_source_currency)
+                ?? $this->normalizeCurrencyCode($invoice->client ? (string) $invoice->client->currency : null);
+            $conversionRate = $this->invoiceConversionRateToTarget($invoice, $sourceCurrency, $targetCurrency, $rateCache);
+
+            if ($sourceCurrency === null || $conversionRate === null || $conversionRate <= 0) {
+                continue;
+            }
+
+            $rates[(int) $invoice->id] = [
+                'hourly_rate' => $invoice->client ? (float) $invoice->client->hourly_rate : 0.0,
+                'conversion_rate' => (float) $conversionRate,
+            ];
+        }
+
+        return $rates;
+    }
+
+    /**
+     * @param array<int, int> $invoiceIds
+     * @param array<int, array{hourly_rate: float, conversion_rate: float}> $convertedInvoiceRates
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildFinancialYearProjectTotalsConverted(array $invoiceIds, array $convertedInvoiceRates): array
+    {
+        if (empty($invoiceIds)) {
+            return [];
+        }
+
+        $sessions = $this->applyActorScopeToSessions(TimerSession::query())
+            ->whereIn('invoice_id', $invoiceIds)
+            ->whereNotNull('stopped_at')
+            ->with(['task.project'])
+            ->get(['id', 'invoice_id', 'task_id', 'duration_seconds']);
+
+        $projectTotals = [];
+
+        foreach ($sessions as $session) {
+            $invoiceId = (int) ($session->invoice_id ?? 0);
+            $invoiceRate = $convertedInvoiceRates[$invoiceId] ?? null;
+
+            if ($invoiceRate === null) {
+                continue;
+            }
+
+            $project = optional(optional($session->task)->project);
+            $projectId = $project->id ? (int) $project->id : null;
+            $projectName = $project->name ?: 'Unassigned Project';
+            $projectKey = $projectId !== null ? 'project-' . $projectId : 'project-unassigned';
+            $durationSeconds = max(0, (int) ($session->duration_seconds ?? 0));
+
+            if (!array_key_exists($projectKey, $projectTotals)) {
+                $projectTotals[$projectKey] = [
+                    'project_id' => $projectId,
+                    'project_name' => $projectName,
+                    'sessions_count' => 0,
+                    'total_duration_seconds' => 0,
+                    'billable_time_amount_converted' => 0.0,
+                ];
+            }
+
+            $projectTotals[$projectKey]['sessions_count'] += 1;
+            $projectTotals[$projectKey]['total_duration_seconds'] += $durationSeconds;
+            $projectTotals[$projectKey]['billable_time_amount_converted'] += ($durationSeconds / 3600)
+                * (float) $invoiceRate['hourly_rate']
+                * (float) $invoiceRate['conversion_rate'];
+        }
+
+        return collect($projectTotals)
+            ->map(function (array $project): array {
+                $project['billable_time_amount_converted'] = round((float) $project['billable_time_amount_converted'], 2);
+                return $project;
+            })
+            ->sortBy(fn (array $project): string => strtolower((string) ($project['project_name'] ?? '')))
+            ->values()
+            ->all();
     }
 
     /**
