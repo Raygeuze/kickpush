@@ -9,6 +9,7 @@ class BusinessExpense extends Model
 {
     protected $fillable = [
         'user_id',
+        'team_id',
         'financial_year_id',
         'name',
         'description',

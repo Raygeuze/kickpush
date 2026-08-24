@@ -38,10 +38,7 @@ class TeamPolicy
      */
     public function create(User $user): bool
     {
-        if($user->email === env('ADMIN_EMAIL')){
-            return true;
-        }
-        return false;
+        return $user->allTeams()->isEmpty();
     }
 
     /**

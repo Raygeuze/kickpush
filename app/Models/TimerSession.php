@@ -12,6 +12,7 @@ class TimerSession extends Model
 
     protected $fillable = [
         'user_id',
+        'team_id',
         'invoice_id',
         'task_id',
         'started_at',

@@ -13,6 +13,15 @@ use Illuminate\Support\Facades\Auth;
 
 class TimerSessionController extends Controller
 {
+    private function currentTeamIdOrFail(): int
+    {
+        $user = Auth::user();
+
+        abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
+
+        return (int) $user->currentTeam->id;
+    }
+
     public function history(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -27,7 +36,7 @@ class TimerSessionController extends Controller
         $confirmedOnly = (bool) ($validated['confirmed_only'] ?? false);
         $invoiceId = $validated['invoice_id'] ?? null;
 
-        $query = $this->applyActorScope(TimerSession::query());
+        $query = $this->applyTeamScope(TimerSession::query());
 
         if ($confirmedOnly) {
             $query->whereNotNull('invoice_id');
@@ -92,6 +101,7 @@ class TimerSessionController extends Controller
 
         $session = TimerSession::create([
             'user_id' => Auth::id(),
+            'team_id' => $this->currentTeamIdOrFail(),
             'task_id' => $this->findDefaultTaskForProject($project)->id,
             'started_at' => now(),
             'accumulated_seconds' => 0,
@@ -216,7 +226,7 @@ class TimerSessionController extends Controller
             ], 422);
         }
 
-        $session = $this->applyActorScope(TimerSession::query())
+        $session = $this->applyCurrentUserScope(TimerSession::query())
             ->whereKey((int) $validated['session_id'])
             ->first();
 
@@ -250,7 +260,7 @@ class TimerSessionController extends Controller
 
     private function findRunningSession(): ?TimerSession
     {
-        return $this->applyActorScope(TimerSession::query())
+        return $this->applyCurrentUserScope(TimerSession::query())
             ->whereNull('stopped_at')
             ->whereNull('paused_at')
             ->latest('started_at')
@@ -259,7 +269,7 @@ class TimerSessionController extends Controller
 
     private function findPausedSession(): ?TimerSession
     {
-        return $this->applyActorScope(TimerSession::query())
+        return $this->applyCurrentUserScope(TimerSession::query())
             ->whereNull('stopped_at')
             ->whereNotNull('paused_at')
             ->latest('paused_at')
@@ -268,7 +278,7 @@ class TimerSessionController extends Controller
 
     private function findActiveSession(): ?TimerSession
     {
-        return $this->applyActorScope(TimerSession::query())
+        return $this->applyCurrentUserScope(TimerSession::query())
             ->whereNull('stopped_at')
             ->latest('started_at')
             ->first();
@@ -294,7 +304,18 @@ class TimerSessionController extends Controller
 
     private function applyActorScope(Builder $query): Builder
     {
-        return $query->where('user_id', Auth::id());
+        return $this->applyTeamScope($query);
+    }
+
+    private function applyTeamScope(Builder $query): Builder
+    {
+        return $query->where('team_id', $this->currentTeamIdOrFail());
+    }
+
+    private function applyCurrentUserScope(Builder $query): Builder
+    {
+        return $this->applyTeamScope($query)
+            ->where('user_id', Auth::id());
     }
 
     private function assertInvoiceBelongsToActor(int $invoiceId): void
@@ -308,7 +329,7 @@ class TimerSessionController extends Controller
     private function findProjectForActorOrFail(int $projectId): Project
     {
         $project = Project::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->whereKey($projectId)
             ->first();
 
@@ -351,6 +372,7 @@ class TimerSessionController extends Controller
         if ($taskId !== null) {
             $selectedTask = Task::query()
                 ->whereKey($taskId)
+                ->where('team_id', $this->currentTeamIdOrFail())
                 ->where('is_active', true)
                 ->first();
 
@@ -364,6 +386,7 @@ class TimerSessionController extends Controller
         if ($session->task_id !== null) {
             $existingTask = Task::query()
                 ->whereKey($session->task_id)
+                ->where('team_id', $this->currentTeamIdOrFail())
                 ->where('is_active', true)
                 ->first();
 
@@ -378,6 +401,7 @@ class TimerSessionController extends Controller
     private function findDefaultTaskForClient(int $clientId): Task
     {
         $defaultTask = Task::query()
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->where('client_id', $clientId)
             ->where('is_default', true)
             ->where('is_active', true)
@@ -388,6 +412,7 @@ class TimerSessionController extends Controller
         }
 
         $firstTask = Task::query()
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->where('client_id', $clientId)
             ->where('is_active', true)
             ->orderBy('id')

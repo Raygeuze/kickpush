@@ -37,6 +37,9 @@ defineProps({
                             </svg>
                         </button>
                     </div>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Recorded by {{ session.user?.name || 'Unknown user' }}
+                    </p>
                 </template>
 
                 <template v-else>

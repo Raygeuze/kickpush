@@ -25,12 +25,22 @@ use Throwable;
 
 class InvoiceController extends Controller
 {
+    private function currentTeamIdOrFail(): int
+    {
+        $user = Auth::user();
+
+        abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
+
+        return (int) $user->currentTeam->id;
+    }
+
     public function create(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $userId = (int) Auth::id();
-        $currentFinancialYear = $this->findOrCreateFinancialYearForUser($userId, $this->defaultNzFinancialYearStart());
+        $teamId = $this->currentTeamIdOrFail();
+        $currentFinancialYear = $this->findOrCreateFinancialYearForTeam($userId, $teamId, $this->defaultNzFinancialYearStart());
 
         $validated = $request->validate([
             'invoice_number' => 'nullable|integer|min:1|unique:invoices,invoice_number',
@@ -50,6 +60,7 @@ class InvoiceController extends Controller
 
         $invoice = Invoice::create([
             'user_id' => $userId,
+            'team_id' => $teamId,
             'client_id' => $clientId,
             'financial_year_id' => $currentFinancialYear->id,
             'invoice_number' => $providedInvoiceNumber ?? $this->generateTemporaryInvoiceNumber(),
@@ -92,7 +103,7 @@ class InvoiceController extends Controller
         ]);
 
         $selectedClientId = $validated['client_id'] ?? null;
-        $currentFinancialYear = $this->findOrCreateFinancialYearForUser((int) Auth::id(), $this->defaultNzFinancialYearStart());
+        $currentFinancialYear = $this->findOrCreateFinancialYearForTeam((int) Auth::id(), $this->currentTeamIdOrFail(), $this->defaultNzFinancialYearStart());
         $financialYears = $this->financialYearsForActor();
         $selectedFinancialYearId = isset($validated['financial_year_id'])
             ? (int) $validated['financial_year_id']
@@ -111,7 +122,7 @@ class InvoiceController extends Controller
         }
 
         $clients = Client::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'currency', 'hourly_rate']);
 
@@ -292,7 +303,7 @@ class InvoiceController extends Controller
         $financialYearStart = isset($validated['financial_year_start'])
             ? (int) $validated['financial_year_start']
             : $this->defaultNzFinancialYearStart();
-        $financialYear = $this->findOrCreateFinancialYearForUser((int) Auth::id(), $financialYearStart);
+        $financialYear = $this->findOrCreateFinancialYearForTeam((int) Auth::id(), $this->currentTeamIdOrFail(), $financialYearStart);
         $summary = $this->financialYearInvoiceSummary($financialYear);
         $convertedTaxSummary = $this->financialYearConvertedTaxSummary($financialYear, $summary);
 
@@ -472,6 +483,7 @@ class InvoiceController extends Controller
 
         $session = TimerSession::create([
             'user_id' => Auth::id(),
+            'team_id' => $this->currentTeamIdOrFail(),
             'invoice_id' => $invoice->id,
             'task_id' => $taskId,
             'started_at' => now(),
@@ -491,7 +503,7 @@ class InvoiceController extends Controller
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $this->abortIfInvoiceFinalized($invoice);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyCurrentUserScopeToSessions(TimerSession::query())
             ->where('invoice_id', $invoice->id)
             ->whereNull('stopped_at')
             ->whereNull('paused_at')
@@ -499,7 +511,7 @@ class InvoiceController extends Controller
             ->first();
 
         if (!$session) {
-            $pausedSession = $this->applyActorScopeToSessions(TimerSession::query())
+            $pausedSession = $this->applyCurrentUserScopeToSessions(TimerSession::query())
                 ->where('invoice_id', $invoice->id)
                 ->whereNull('stopped_at')
                 ->whereNotNull('paused_at')
@@ -538,7 +550,7 @@ class InvoiceController extends Controller
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $this->abortIfInvoiceFinalized($invoice);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyCurrentUserScopeToSessions(TimerSession::query())
             ->where('invoice_id', $invoice->id)
             ->whereNull('stopped_at')
             ->whereNotNull('paused_at')
@@ -546,7 +558,7 @@ class InvoiceController extends Controller
             ->first();
 
         if (!$session) {
-            $runningSession = $this->applyActorScopeToSessions(TimerSession::query())
+            $runningSession = $this->applyCurrentUserScopeToSessions(TimerSession::query())
                 ->where('invoice_id', $invoice->id)
                 ->whereNull('stopped_at')
                 ->whereNull('paused_at')
@@ -582,7 +594,7 @@ class InvoiceController extends Controller
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $this->abortIfInvoiceFinalized($invoice);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyCurrentUserScopeToSessions(TimerSession::query())
             ->where('invoice_id', $invoice->id)
             ->whereNull('stopped_at')
             ->latest('started_at')
@@ -639,6 +651,7 @@ class InvoiceController extends Controller
 
         TimerSession::create([
             'user_id' => Auth::id(),
+            'team_id' => $this->currentTeamIdOrFail(),
             'invoice_id' => $invoice->id,
             'task_id' => $taskId,
             'started_at' => $startedAt,
@@ -1203,7 +1216,7 @@ class InvoiceController extends Controller
 
     private function applyActorScope(Builder $query): Builder
     {
-        return $query->where('user_id', Auth::id());
+        return $query->where('team_id', $this->currentTeamIdOrFail());
     }
 
     private function buildInvoicePdfPayload(Invoice $invoice): array
@@ -1308,7 +1321,13 @@ class InvoiceController extends Controller
 
     private function applyActorScopeToSessions(Builder $query): Builder
     {
-        return $query->where('user_id', Auth::id());
+        return $query->where('team_id', $this->currentTeamIdOrFail());
+    }
+
+    private function applyCurrentUserScopeToSessions(Builder $query): Builder
+    {
+        return $this->applyActorScopeToSessions($query)
+            ->where('user_id', Auth::id());
     }
 
     private function findInvoiceForActorOrFail(int $invoiceId): Invoice
@@ -1331,7 +1350,7 @@ class InvoiceController extends Controller
     private function findClientForActorOrFail(int $clientId): Client
     {
         $client = Client::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->whereKey($clientId)
             ->first();
 
@@ -1342,7 +1361,7 @@ class InvoiceController extends Controller
 
     private function findAnyActiveSessionForActor(): ?TimerSession
     {
-        return $this->applyActorScopeToSessions(TimerSession::query())
+        return $this->applyCurrentUserScopeToSessions(TimerSession::query())
             ->whereNull('stopped_at')
             ->latest('started_at')
             ->first();
@@ -1351,7 +1370,7 @@ class InvoiceController extends Controller
     private function findFinancialYearForActorOrFail(int $financialYearId): FinancialYear
     {
         $financialYear = FinancialYear::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->whereKey($financialYearId)
             ->first();
 
@@ -1363,10 +1382,11 @@ class InvoiceController extends Controller
     private function financialYearsForActor()
     {
         $userId = (int) Auth::id();
-        $this->findOrCreateFinancialYearForUser($userId, $this->defaultNzFinancialYearStart());
+        $teamId = $this->currentTeamIdOrFail();
+        $this->findOrCreateFinancialYearForTeam($userId, $teamId, $this->defaultNzFinancialYearStart());
 
         return FinancialYear::query()
-            ->where('user_id', $userId)
+            ->where('team_id', $teamId)
             ->orderByDesc('start_year')
             ->get();
     }
@@ -1393,7 +1413,7 @@ class InvoiceController extends Controller
     {
         return $this->applyActorScopeToSessions(TimerSession::query())
             ->where('invoice_id', $invoice->id)
-            ->with(['task.project'])
+            ->with(['task.project', 'user:id,name'])
             ->orderByDesc('started_at')
             ->get();
     }
@@ -1407,7 +1427,7 @@ class InvoiceController extends Controller
         return Task::query()
             ->where('client_id', $invoice->client_id)
             ->whereHas('project', function (Builder $query): void {
-                $query->where('user_id', Auth::id());
+                $query->where('team_id', $this->currentTeamIdOrFail());
             })
             ->with(['project'])
             ->orderBy('name')
@@ -1422,11 +1442,12 @@ class InvoiceController extends Controller
 
         if ($taskId !== null) {
             $task = Task::query()
+                ->where('team_id', $this->currentTeamIdOrFail())
                 ->where('client_id', $invoice->client_id)
                 ->whereKey($taskId)
                 ->where('is_active', true)
                 ->whereHas('project', function (Builder $query): void {
-                    $query->where('user_id', Auth::id());
+                    $query->where('team_id', $this->currentTeamIdOrFail());
                 })
                 ->first();
 
@@ -1442,11 +1463,12 @@ class InvoiceController extends Controller
         }
 
         $fallbackTask = Task::query()
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->where('client_id', $invoice->client_id)
             ->where('project_id', $projectId)
             ->where('is_active', true)
             ->whereHas('project', function (Builder $query): void {
-                $query->where('user_id', Auth::id());
+                $query->where('team_id', $this->currentTeamIdOrFail());
             })
             ->orderByDesc('is_default')
             ->orderBy('name')
@@ -1915,7 +1937,7 @@ class InvoiceController extends Controller
     private function financialYearInvoiceSummary(FinancialYear $financialYear): array
     {
         $businessExpenses = BusinessExpense::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->where('financial_year_id', $financialYear->id)
             ->get(['amount', 'tax_deductible', 'deductible_percentage']);
 
@@ -2387,16 +2409,17 @@ class InvoiceController extends Controller
         return $resolvedRate > 0 ? $resolvedRate : null;
     }
 
-    private function findOrCreateFinancialYearForUser(int $userId, int $startYear): FinancialYear
+    private function findOrCreateFinancialYearForTeam(int $userId, int $teamId, int $startYear): FinancialYear
     {
         $period = $this->nzFinancialYearPeriod($startYear);
 
         return FinancialYear::query()->firstOrCreate(
             [
-                'user_id' => $userId,
+                'team_id' => $teamId,
                 'start_year' => $startYear,
             ],
             [
+                'user_id' => $userId,
                 'end_year' => $startYear + 1,
                 'label' => $period['label'],
                 'start_date' => $period['start']->toDateString(),

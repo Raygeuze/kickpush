@@ -33,11 +33,13 @@ const updateRoleForm = useForm({
 
 const leaveTeamForm = useForm({});
 const removeTeamMemberForm = useForm({});
+const transferOwnershipForm = useForm({});
 
 const currentlyManagingRole = ref(false);
 const managingRoleFor = ref(null);
 const confirmingLeavingTeam = ref(false);
 const teamMemberBeingRemoved = ref(null);
+const teamMemberForOwnershipTransfer = ref(null);
 
 const addTeamMember = () => {
     addTeamMemberForm.post(route('team-members.store', props.team), {
@@ -87,8 +89,31 @@ const removeTeamMember = () => {
     });
 };
 
+const confirmOwnershipTransfer = (teamMember) => {
+    teamMemberForOwnershipTransfer.value = teamMember;
+};
+
+const transferOwnership = () => {
+    if (!teamMemberForOwnershipTransfer.value) {
+        return;
+    }
+
+    transferOwnershipForm.post(route('teams.transferOwnership', [props.team, teamMemberForOwnershipTransfer.value]), {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+            teamMemberForOwnershipTransfer.value = null;
+        },
+    });
+};
+
 const displayableRole = (role) => {
     return props.availableRoles.find(r => r.key === role).name;
+};
+
+const isTeamOwner = (teamMember) => {
+    const ownerId = props.team?.owner?.id ?? props.team?.user_id;
+    return Number(ownerId) === Number(teamMember?.id);
 };
 </script>
 
@@ -249,6 +274,18 @@ const displayableRole = (role) => {
                                     {{ displayableRole(user.membership.role) }}
                                 </div>
 
+                                <div v-if="isTeamOwner(user)" class="ms-2 text-xs font-semibold text-emerald-600">
+                                    Owner
+                                </div>
+
+                                <button
+                                    v-if="userPermissions.canUpdateTeamMembers && !isTeamOwner(user)"
+                                    class="cursor-pointer ms-6 text-sm text-indigo-600"
+                                    @click="confirmOwnershipTransfer(user)"
+                                >
+                                    Make owner
+                                </button>
+
                                 <!-- Leave Team -->
                                 <button
                                     v-if="$page.props.auth.user.id === user.id"
@@ -350,6 +387,31 @@ const displayableRole = (role) => {
                     @click="leaveTeam"
                 >
                     Leave
+                </DangerButton>
+            </template>
+        </ConfirmationModal>
+
+        <ConfirmationModal :show="teamMemberForOwnershipTransfer" @close="teamMemberForOwnershipTransfer = null">
+            <template #title>
+                Transfer Team Ownership
+            </template>
+
+            <template #content>
+                The selected member will become the only person who can invite and add new users to this team. Continue?
+            </template>
+
+            <template #footer>
+                <SecondaryButton @click="teamMemberForOwnershipTransfer = null">
+                    Cancel
+                </SecondaryButton>
+
+                <DangerButton
+                    class="ms-3"
+                    :class="{ 'opacity-25': transferOwnershipForm.processing }"
+                    :disabled="transferOwnershipForm.processing"
+                    @click="transferOwnership"
+                >
+                    Transfer Ownership
                 </DangerButton>
             </template>
         </ConfirmationModal>

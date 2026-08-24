@@ -12,7 +12,7 @@ const props = defineProps({
 
 const clients = ref([]);
 const selectedClientId = ref(null);
-const activePanel = ref('overview');
+const activePanel = ref('projects');
 const clientSearch = ref('');
 const taskSearch = ref('');
 
@@ -687,14 +687,6 @@ ensureClientSelection();
                                 <button
                                     type="button"
                                     class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
-                                    :class="activePanel === 'overview' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'"
-                                    @click="activePanel = 'overview'"
-                                >
-                                    Overview
-                                </button>
-                                <button
-                                    type="button"
-                                    class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
                                     :class="activePanel === 'projects' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'"
                                     @click="activePanel = 'projects'"
                                 >
@@ -708,21 +700,6 @@ ensureClientSelection();
                                 >
                                     Tasks
                                 </button>
-                            </div>
-
-                            <div v-if="activePanel === 'overview'" class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                                <div class="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">Total Projects</p>
-                                    <p class="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{{ selectedClientProjects.length }}</p>
-                                </div>
-                                <div class="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">Active Projects</p>
-                                    <p class="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{{ selectedClientActiveProjects.length }}</p>
-                                </div>
-                                <div class="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">Tasks</p>
-                                    <p class="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{{ selectedClientTasks.length }}</p>
-                                </div>
                             </div>
 
                             <div v-if="activePanel === 'projects'" class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">

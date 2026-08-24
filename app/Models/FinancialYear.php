@@ -10,6 +10,7 @@ class FinancialYear extends Model
 {
     protected $fillable = [
         'user_id',
+        'team_id',
         'start_year',
         'end_year',
         'label',

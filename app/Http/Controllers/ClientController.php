@@ -12,12 +12,23 @@ use Inertia\Response;
 
 class ClientController extends Controller
 {
+    private function currentTeamIdOrFail(): int
+    {
+        $user = Auth::user();
+
+        abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
+
+        return (int) $user->currentTeam->id;
+    }
+
     public function indexPage(): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
+        $teamId = $this->currentTeamIdOrFail();
+
         $clients = Client::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->with([
                 'projects:id,client_id,name,description,is_active,created_at,updated_at',
                 'tasks:id,client_id,project_id,name,description,is_active,is_default,created_at,updated_at',
@@ -41,8 +52,10 @@ class ClientController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
+        $teamId = $this->currentTeamIdOrFail();
+
         $clients = Client::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->with([
                 'projects:id,client_id,name,description,is_active,created_at,updated_at',
                 'tasks:id,client_id,project_id,name,description,is_active,is_default,created_at,updated_at',
@@ -59,6 +72,8 @@ class ClientController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
+        $teamId = $this->currentTeamIdOrFail();
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255',
@@ -69,6 +84,7 @@ class ClientController extends Controller
 
         $client = Client::create([
             'user_id' => Auth::id(),
+            'team_id' => $teamId,
             'name' => $validated['name'],
             'email' => $validated['email'] ?? null,
             'currency' => Str::upper($validated['currency']),
@@ -86,8 +102,10 @@ class ClientController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
+        $teamId = $this->currentTeamIdOrFail();
+
         $client = Client::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->whereKey($clientId)
             ->first();
 

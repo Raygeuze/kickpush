@@ -13,6 +13,15 @@ use Inertia\Response;
 
 class ProjectController extends Controller
 {
+    private function currentTeamIdOrFail(): int
+    {
+        $user = Auth::user();
+
+        abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
+
+        return (int) $user->currentTeam->id;
+    }
+
     public function show(Request $request, int $projectId): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -270,12 +279,14 @@ class ProjectController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
+        $teamId = $this->currentTeamIdOrFail();
+
         $validated = $request->validate([
             'client_id' => 'nullable|integer|exists:clients,id',
         ]);
 
         $query = Project::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->with('client:id,name')
             ->orderBy('name');
 
@@ -291,6 +302,8 @@ class ProjectController extends Controller
     public function create(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $teamId = $this->currentTeamIdOrFail();
 
         $validated = $request->validate([
             'client_id' => 'required|integer|exists:clients,id',
@@ -320,6 +333,7 @@ class ProjectController extends Controller
 
         $project = Project::create([
             'user_id' => Auth::id(),
+            'team_id' => $teamId,
             'client_id' => $client->id,
             'name' => $projectName,
             'description' => $validated['description'] ?? null,
@@ -419,8 +433,10 @@ class ProjectController extends Controller
 
     private function findProjectForActorOrFail(int $projectId): Project
     {
+        $teamId = $this->currentTeamIdOrFail();
+
         $project = Project::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->whereKey($projectId)
             ->first();
 
@@ -431,8 +447,10 @@ class ProjectController extends Controller
 
     private function findClientForActorOrFail(int $clientId): Client
     {
+        $teamId = $this->currentTeamIdOrFail();
+
         $client = Client::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->whereKey($clientId)
             ->first();
 

@@ -12,9 +12,20 @@ use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
 {
+    private function currentTeamIdOrFail(): int
+    {
+        $user = Auth::user();
+
+        abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
+
+        return (int) $user->currentTeam->id;
+    }
+
     public function list(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $teamId = $this->currentTeamIdOrFail();
 
         $validated = $request->validate([
             'client_id' => 'nullable|integer|exists:clients,id',
@@ -22,9 +33,7 @@ class TaskController extends Controller
         ]);
 
         $query = Task::query()
-            ->whereHas('client', function ($builder) {
-                $builder->where('user_id', Auth::id());
-            })
+            ->where('team_id', $teamId)
             ->with(['client:id,name', 'project:id,name,client_id'])
             ->orderBy('name');
 
@@ -86,6 +95,7 @@ class TaskController extends Controller
         }
 
         $task = Task::create([
+            'team_id' => $this->currentTeamIdOrFail(),
             'client_id' => $client->id,
             'project_id' => $project->id,
             'name' => $taskName,
@@ -248,11 +258,11 @@ class TaskController extends Controller
 
     private function findTaskForActorOrFail(int $taskId): Task
     {
+        $teamId = $this->currentTeamIdOrFail();
+
         $task = Task::query()
             ->whereKey($taskId)
-            ->whereHas('client', function ($builder) {
-                $builder->where('user_id', Auth::id());
-            })
+            ->where('team_id', $teamId)
             ->first();
 
         abort_unless($task !== null, 404, 'Task not found.');
@@ -262,8 +272,10 @@ class TaskController extends Controller
 
     private function findProjectForActorOrFail(int $projectId): Project
     {
+        $teamId = $this->currentTeamIdOrFail();
+
         $project = Project::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->whereKey($projectId)
             ->first();
 
@@ -274,8 +286,10 @@ class TaskController extends Controller
 
     private function findClientForActorOrFail(int $clientId): Client
     {
+        $teamId = $this->currentTeamIdOrFail();
+
         $client = Client::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->whereKey($clientId)
             ->first();
 

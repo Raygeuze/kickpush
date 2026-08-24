@@ -3,7 +3,10 @@
 namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Middleware;
+use Laravel\Fortify\Features;
+use Laravel\Jetstream\Jetstream;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -36,11 +39,33 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         $user = $request->user();
+        $currentTeam = $user ? $user->currentTeam : null;
+        $allTeams = $user ? $user->allTeams()->map(fn ($team) => [
+            'id' => (int) $team->id,
+            'name' => (string) $team->name,
+            'personal_team' => (bool) $team->personal_team,
+        ])->values()->all() : [];
 
         return array_merge(parent::share($request), [
+            'jetstream' => [
+                'hasTeamFeatures' => Jetstream::hasTeamFeatures(),
+                'canCreateTeams' => $user ? Gate::forUser($user)->check('create', Jetstream::newTeamModel()) : false,
+                'canUpdateProfileInformation' => Features::enabled(Features::updateProfileInformation()),
+                'canUpdatePassword' => Features::enabled(Features::updatePasswords()),
+                'canManageTwoFactorAuthentication' => Features::enabled(Features::twoFactorAuthentication()),
+                'hasAccountDeletionFeatures' => Jetstream::hasAccountDeletionFeatures(),
+                'hasApiFeatures' => Jetstream::hasApiFeatures(),
+                'managesProfilePhotos' => Jetstream::managesProfilePhotos(),
+            ],
             'auth' => [
                 'user' => $user
                     ? array_merge($user->toArray(), [
+                        'current_team' => $currentTeam ? [
+                            'id' => (int) $currentTeam->id,
+                            'name' => (string) $currentTeam->name,
+                            'personal_team' => (bool) $currentTeam->personal_team,
+                        ] : null,
+                        'all_teams' => $allTeams,
                         'additional_taxes' => $user->additionalTaxes()
                             ->get(['id', 'name', 'category', 'value_type', 'value', 'currency', 'position'])
                             ->map(fn ($item) => [

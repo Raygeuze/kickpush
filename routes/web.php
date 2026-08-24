@@ -17,6 +17,9 @@ Route::get('/', function () {
 })->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::post('/teams/{team}/ownership/{user}', 'App\\Http\\Controllers\\TeamOwnershipController@transfer')
+        ->name('teams.transferOwnership');
+
     Route::get('/clients', [ClientController::class, 'indexPage'])->name('clients.index');
     Route::get('/clients/create', [ClientController::class, 'createPage'])->name('clients.createPage');
     Route::get('/clients/list', [ClientController::class, 'list'])->name('clients.list');

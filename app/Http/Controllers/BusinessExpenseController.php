@@ -15,12 +15,23 @@ use Inertia\Response;
 
 class BusinessExpenseController extends Controller
 {
+    private function currentTeamIdOrFail(): int
+    {
+        $user = Auth::user();
+
+        abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
+
+        return (int) $user->currentTeam->id;
+    }
+
     public function index(): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
+        $teamId = $this->currentTeamIdOrFail();
+
         $expenses = BusinessExpense::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $teamId)
             ->with('financialYear:id,label')
             ->latest('incurred_on')
             ->latest('created_at')
@@ -60,11 +71,13 @@ class BusinessExpenseController extends Controller
 
         $financialYearId = $this->resolveFinancialYearIdForActor(
             (int) Auth::id(),
+            $this->currentTeamIdOrFail(),
             isset($validated['financial_year_id']) ? (int) $validated['financial_year_id'] : null
         );
 
         $expense = BusinessExpense::create([
             'user_id' => (int) Auth::id(),
+            'team_id' => $this->currentTeamIdOrFail(),
             'financial_year_id' => $financialYearId,
             'name' => $validated['name'] ?? null,
             'description' => $validated['description'] ?? null,
@@ -87,7 +100,7 @@ class BusinessExpenseController extends Controller
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $expense = BusinessExpense::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->whereKey($businessExpenseId)
             ->first();
 
@@ -126,10 +139,15 @@ class BusinessExpenseController extends Controller
         if (array_key_exists('financial_year_id', $validated)) {
             $expense->financial_year_id = $this->resolveFinancialYearIdForActor(
                 (int) Auth::id(),
+                $this->currentTeamIdOrFail(),
                 $validated['financial_year_id'] !== null ? (int) $validated['financial_year_id'] : null
             );
         } elseif ($expense->financial_year_id === null) {
-            $expense->financial_year_id = $this->resolveFinancialYearIdForActor((int) Auth::id(), null);
+            $expense->financial_year_id = $this->resolveFinancialYearIdForActor(
+                (int) Auth::id(),
+                $this->currentTeamIdOrFail(),
+                null
+            );
         }
         $expense->tax_deductible = $isTaxDeductible;
         $expense->deductible_percentage = $deductiblePercentage;
@@ -146,7 +164,7 @@ class BusinessExpenseController extends Controller
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $expense = BusinessExpense::query()
-            ->where('user_id', Auth::id())
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->whereKey($businessExpenseId)
             ->first();
 
@@ -173,11 +191,11 @@ class BusinessExpenseController extends Controller
         return [$path, $receipt->getClientOriginalName()];
     }
 
-    private function resolveFinancialYearIdForActor(int $userId, ?int $requestedFinancialYearId): int
+    private function resolveFinancialYearIdForActor(int $userId, int $teamId, ?int $requestedFinancialYearId): int
     {
         if ($requestedFinancialYearId !== null) {
             $financialYear = FinancialYear::query()
-                ->where('user_id', $userId)
+                ->where('team_id', $teamId)
                 ->whereKey($requestedFinancialYearId)
                 ->first();
 
@@ -191,10 +209,11 @@ class BusinessExpenseController extends Controller
 
         $financialYear = FinancialYear::query()->firstOrCreate(
             [
-                'user_id' => $userId,
+                'team_id' => $teamId,
                 'start_year' => $currentStartYear,
             ],
             [
+                'user_id' => $userId,
                 'end_year' => $currentStartYear + 1,
                 'label' => $period['label'],
                 'start_date' => $period['start']->toDateString(),
