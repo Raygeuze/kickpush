@@ -353,27 +353,6 @@ async function saveProjectEdit(project) {
     }
 }
 
-async function toggleProjectActive(project) {
-    if (isSaving.value) {
-        return;
-    }
-
-    isSaving.value = true;
-
-    try {
-        const response = await axios.put(`/projects/${project.id}`, {
-            is_active: !project.is_active,
-        });
-
-        await refreshClients();
-        setStatus(response.data.message || 'Project updated.', 'success');
-    } catch (error) {
-        setStatus(error?.response?.data?.message || 'Failed to update project.', 'error');
-    } finally {
-        isSaving.value = false;
-    }
-}
-
 async function deleteProject(project) {
     if (isSaving.value) {
         return;
@@ -466,27 +445,6 @@ async function saveTaskEdit(task) {
 
         await refreshClients();
         cancelTaskEdit();
-        setStatus(response.data.message || 'Task updated.', 'success');
-    } catch (error) {
-        setStatus(error?.response?.data?.message || 'Failed to update task.', 'error');
-    } finally {
-        isSaving.value = false;
-    }
-}
-
-async function toggleTaskActive(task) {
-    if (isSaving.value) {
-        return;
-    }
-
-    isSaving.value = true;
-
-    try {
-        const response = await axios.put(`/tasks/${task.id}`, {
-            is_active: !task.is_active,
-        });
-
-        await refreshClients();
         setStatus(response.data.message || 'Task updated.', 'success');
     } catch (error) {
         setStatus(error?.response?.data?.message || 'Failed to update task.', 'error');
@@ -817,33 +775,43 @@ ensureClientSelection();
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <Link
                                                     :href="route('projects.show', project.id)"
-                                                    class="rounded-lg bg-blue-600 px-2 py-1 text-xs text-white transition hover:bg-blue-700"
+                                                    class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                                                    title="View project"
+                                                    aria-label="View project"
                                                 >
-                                                    View
+                                                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                                                        <circle cx="12" cy="12" r="3" />
+                                                    </svg>
                                                 </Link>
                                                 <button
                                                     type="button"
-                                                    class="rounded-lg bg-indigo-600 px-2 py-1 text-xs text-white disabled:opacity-60"
+                                                    class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:bg-gray-100 disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                                                     :disabled="isSaving"
+                                                    title="Edit project"
+                                                    aria-label="Edit project"
                                                     @click="startProjectEdit(project)"
                                                 >
-                                                    Edit
+                                                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M12 20h9" />
+                                                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                    </svg>
                                                 </button>
                                                 <button
                                                     type="button"
-                                                    class="rounded-lg bg-gray-200 px-2 py-1 text-xs text-gray-800 disabled:opacity-60 dark:bg-gray-700 dark:text-gray-200"
+                                                    class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
                                                     :disabled="isSaving"
-                                                    @click="toggleProjectActive(project)"
-                                                >
-                                                    {{ project.is_active ? 'Archive' : 'Unarchive' }}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="rounded-lg bg-red-600 px-2 py-1 text-xs text-white disabled:opacity-60"
-                                                    :disabled="isSaving"
+                                                    title="Delete project"
+                                                    aria-label="Delete project"
                                                     @click="deleteProject(project)"
                                                 >
-                                                    Delete
+                                                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M3 6h18" />
+                                                        <path d="M8 6V4h8v2" />
+                                                        <path d="M19 6l-1 14H6L5 6" />
+                                                        <path d="M10 11v6" />
+                                                        <path d="M14 11v6" />
+                                                    </svg>
                                                 </button>
                                             </div>
                                         </div>
@@ -960,35 +928,50 @@ ensureClientSelection();
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <button
                                                     type="button"
-                                                    class="rounded-lg bg-indigo-600 px-2 py-1 text-xs text-white disabled:opacity-60"
+                                                    class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:bg-gray-100 disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                                                     :disabled="isSaving"
+                                                    title="Edit task"
+                                                    aria-label="Edit task"
                                                     @click="startTaskEdit(task)"
                                                 >
-                                                    Edit
+                                                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M12 20h9" />
+                                                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                    </svg>
                                                 </button>
                                                 <button
                                                     type="button"
-                                                    class="rounded-lg bg-gray-200 px-2 py-1 text-xs text-gray-800 disabled:opacity-60 dark:bg-gray-700 dark:text-gray-200"
-                                                    :disabled="isSaving"
-                                                    @click="toggleTaskActive(task)"
-                                                >
-                                                    {{ task.is_active ? 'Archive' : 'Unarchive' }}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="rounded-lg bg-amber-500 px-2 py-1 text-xs text-white disabled:opacity-60"
+                                                    class="inline-flex h-8 w-8 items-center justify-center rounded-full border transition disabled:opacity-60"
+                                                    :class="task.is_default
+                                                        ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:bg-amber-900/30 dark:hover:bg-amber-900/40'
+                                                        : 'border-gray-300 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'"
                                                     :disabled="isSaving || task.is_active === false"
+                                                    :title="task.is_default ? 'Unset default task' : 'Set default task'"
+                                                    :aria-label="task.is_default ? 'Unset default task' : 'Set default task'"
                                                     @click="setTaskDefault(task)"
                                                 >
-                                                    {{ task.is_default ? 'Unset Default' : 'Set Default' }}
+                                                    <svg v-if="task.is_default" viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+                                                        <path d="m12 17.3 6.18 3.7-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" />
+                                                    </svg>
+                                                    <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="m12 17.3 6.18 3.7-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" />
+                                                    </svg>
                                                 </button>
                                                 <button
                                                     type="button"
-                                                    class="rounded-lg bg-red-600 px-2 py-1 text-xs text-white disabled:opacity-60"
+                                                    class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
                                                     :disabled="isSaving"
+                                                    title="Delete task"
+                                                    aria-label="Delete task"
                                                     @click="deleteTask(task)"
                                                 >
-                                                    Delete
+                                                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M3 6h18" />
+                                                        <path d="M8 6V4h8v2" />
+                                                        <path d="M19 6l-1 14H6L5 6" />
+                                                        <path d="M10 11v6" />
+                                                        <path d="M14 11v6" />
+                                                    </svg>
                                                 </button>
                                             </div>
                                         </div>
