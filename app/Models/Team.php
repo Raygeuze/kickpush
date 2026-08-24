@@ -21,6 +21,10 @@ class Team extends JetstreamTeam
     protected $fillable = [
         'name',
         'personal_team',
+        'bank_account_name',
+        'bank_name',
+        'bsb_code',
+        'bank_account_number',
     ];
 
     /**

@@ -5,6 +5,7 @@ import SectionBorder from '@/Components/SectionBorder.vue';
 import TeamMemberManager from '@/Pages/Teams/Partials/TeamMemberManager.vue';
 import UpdateTeamAdditionalTaxesForm from '@/Pages/Teams/Partials/UpdateTeamAdditionalTaxesForm.vue';
 import UpdateTeamNameForm from '@/Pages/Teams/Partials/UpdateTeamNameForm.vue';
+import UpdateTeamPaymentInformationForm from '@/Pages/Teams/Partials/UpdateTeamPaymentInformationForm.vue';
 
 defineProps({
     team: Object,
@@ -32,6 +33,13 @@ defineProps({
                     :team="team"
                     :permissions="permissions"
                     :additional-taxes="$page.props.auth.user.additional_taxes || []"
+                />
+
+                <SectionBorder />
+
+                <UpdateTeamPaymentInformationForm
+                    class="mt-10 sm:mt-0"
+                    :team="team"
                 />
 
                 <SectionBorder />

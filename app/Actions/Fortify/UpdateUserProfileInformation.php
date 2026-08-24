@@ -23,10 +23,6 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             'email' => ['required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
             'country' => ['required', 'string', 'size:2', 'alpha'],
             'photo' => ['nullable', 'mimes:jpg,jpeg,png', 'max:1024'],
-            'bank_account_name' => ['nullable', 'string', 'max:255'],
-            'bank_name' => ['nullable', 'string', 'max:255'],
-            'bsb_code' => ['nullable', 'string', 'max:32'],
-            'bank_account_number' => ['nullable', 'string', 'max:64'],
         ])->validateWithBag('updateProfileInformation');
 
         if (isset($input['photo'])) {
@@ -42,10 +38,6 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
                     'name' => $input['name'],
                     'email' => $input['email'],
                     'country' => strtoupper((string) $input['country']),
-                    'bank_account_name' => $input['bank_account_name'] ?? null,
-                    'bank_name' => $input['bank_name'] ?? null,
-                    'bsb_code' => $input['bsb_code'] ?? null,
-                    'bank_account_number' => $input['bank_account_number'] ?? null,
                 ])->save();
             });
         }
@@ -63,10 +55,6 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
                 'name' => $input['name'],
                 'email' => $input['email'],
                 'country' => strtoupper((string) $input['country']),
-                'bank_account_name' => $input['bank_account_name'] ?? null,
-                'bank_name' => $input['bank_name'] ?? null,
-                'bsb_code' => $input['bsb_code'] ?? null,
-                'bank_account_number' => $input['bank_account_number'] ?? null,
                 'email_verified_at' => null,
             ])->save();
         });

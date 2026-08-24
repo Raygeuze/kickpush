@@ -1142,6 +1142,7 @@ class InvoiceController extends Controller
         $pdf->loadView('invoices.pdf', [
             'invoice' => $pdfPayload['invoice'],
             'user' => $pdfPayload['user'],
+            'team' => $pdfPayload['team'],
             'lineItems' => $pdfPayload['lineItems'],
             'projectTotals' => $pdfPayload['projectTotals'] ?? [],
             'totalDurationSeconds' => $pdfPayload['totalDurationSeconds'],
@@ -1186,6 +1187,7 @@ class InvoiceController extends Controller
         $pdf->loadView('invoices.pdf', [
             'invoice' => $pdfPayload['invoice'],
             'user' => $pdfPayload['user'],
+            'team' => $pdfPayload['team'],
             'lineItems' => $pdfPayload['lineItems'],
             'projectTotals' => $pdfPayload['projectTotals'] ?? [],
             'totalDurationSeconds' => $pdfPayload['totalDurationSeconds'],
@@ -1226,6 +1228,7 @@ class InvoiceController extends Controller
     {
         $freshInvoice = $invoice->fresh(['client', 'financialYear']);
         $user = Auth::user();
+        $team = $user ? $user->currentTeam : null;
         $summary = $this->invoiceSummary($freshInvoice);
         $hourlyRate = $freshInvoice->client ? (float) $freshInvoice->client->hourly_rate : 0;
         $expenses = $this->invoiceExpenses($freshInvoice);
@@ -1277,6 +1280,7 @@ class InvoiceController extends Controller
         return [
             'invoice' => $freshInvoice,
             'user' => $user,
+            'team' => $team,
             'lineItems' => $lineItems,
             'projectTotals' => $projectTotals,
             'totalDurationSeconds' => $totalDurationSeconds,

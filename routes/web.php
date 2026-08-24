@@ -6,6 +6,7 @@ use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\TeamAdditionalTaxController;
+use App\Http\Controllers\TeamPaymentInformationController;
 use App\Http\Controllers\TimerSessionController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -22,6 +23,8 @@ Route::middleware('auth')->group(function () {
         ->name('teams.transferOwnership');
     Route::put('/teams/{team}/additional-taxes', [TeamAdditionalTaxController::class, 'update'])
         ->name('teams.additionalTaxes.update');
+    Route::put('/teams/{team}/payment-information', [TeamPaymentInformationController::class, 'update'])
+        ->name('teams.paymentInformation.update');
 
     Route::get('/clients', [ClientController::class, 'indexPage'])->name('clients.index');
     Route::get('/clients/create', [ClientController::class, 'createPage'])->name('clients.createPage');
