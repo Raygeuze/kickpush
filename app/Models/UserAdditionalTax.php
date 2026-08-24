@@ -9,8 +9,11 @@ class UserAdditionalTax extends Model
 {
     use HasFactory;
 
+    protected $table = 'team_additional_taxes';
+
     protected $fillable = [
         'user_id',
+        'team_id',
         'name',
         'category',
         'value_type',
@@ -30,5 +33,10 @@ class UserAdditionalTax extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function team()
+    {
+        return $this->belongsTo(Team::class);
     }
 }

@@ -179,6 +179,7 @@ async function deleteInvoice(invoiceId) {
                         </div>
                         <div class="flex items-center gap-3">
                             <Link
+                                v-if="$page.props.auth.user?.current_team?.is_owner"
                                 :href="route('invoices.financialYearTaxSummary')"
                                 class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition"
                             >
@@ -345,6 +346,7 @@ async function deleteInvoice(invoiceId) {
                                     </button>
 
                                     <Link
+                                        v-if="$page.props.auth.user?.current_team?.is_owner"
                                         :href="route('invoices.taxSummary', invoice.id)"
                                         class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
                                         @click.prevent

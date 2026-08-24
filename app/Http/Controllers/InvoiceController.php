@@ -10,6 +10,7 @@ use App\Models\FinancialYear;
 use App\Models\Invoice;
 use App\Models\Task;
 use App\Models\TimerSession;
+use App\Models\UserAdditionalTax;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -275,6 +276,7 @@ class InvoiceController extends Controller
     public function taxSummary(int $invoiceId): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
+        $this->abortUnlessCurrentTeamOwner();
 
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $summary = $this->invoiceSummary($invoice);
@@ -295,6 +297,7 @@ class InvoiceController extends Controller
     public function financialYearTaxSummary(Request $request): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
+        $this->abortUnlessCurrentTeamOwner();
 
         $validated = $request->validate([
             'financial_year_start' => 'nullable|integer|min:2000|max:9999',
@@ -1487,6 +1490,13 @@ class InvoiceController extends Controller
             ->get();
     }
 
+    private function abortUnlessCurrentTeamOwner(): void
+    {
+        $user = Auth::user();
+
+        abort_unless($user instanceof User && $user->currentTeam && $user->ownsTeam($user->currentTeam), 403, 'Only the team owner can access tax summary pages.');
+    }
+
     private function invoiceExpenses(Invoice $invoice)
     {
         return Expense::query()
@@ -1541,7 +1551,7 @@ class InvoiceController extends Controller
         $deductibleBusinessExpensesAmount = round((float) ($summary['deductible_business_expenses_amount'] ?? 0), 2);
         $taxableAmount = round(max(0, $grossAmount - $deductibleBusinessExpensesAmount), 2);
         $resolvedBaseCurrency = $this->normalizeCurrencyCode($baseCurrency) ?? 'USD';
-        $additionalTaxItems = $this->userAdditionalTaxItems();
+        $additionalTaxItems = $this->teamAdditionalTaxItems();
         $rateCache = [];
         $additionalTaxesBeforeDeductions = $this->calculateAdditionalTaxItems($grossAmount, $additionalTaxItems, $resolvedBaseCurrency, $rateCache);
         $totalTaxBeforeDeductionsAmount = round($additionalTaxesBeforeDeductions['tax_total'], 2);
@@ -1574,15 +1584,18 @@ class InvoiceController extends Controller
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function userAdditionalTaxItems(): array
+    private function teamAdditionalTaxItems(): array
     {
         $user = Auth::user();
 
-        if (! $user instanceof User) {
+        if (! $user instanceof User || ! $user->currentTeam) {
             return [];
         }
 
-        return $user->additionalTaxes()
+        return UserAdditionalTax::query()
+            ->where('team_id', (int) $user->currentTeam->id)
+            ->orderBy('position')
+            ->orderBy('id')
             ->get(['id', 'name', 'category', 'value_type', 'value', 'currency', 'position'])
             ->map(fn ($item): array => [
                 'id' => (int) $item->id,
@@ -2044,7 +2057,7 @@ class InvoiceController extends Controller
     {
         $actor = Auth::user();
         $targetCurrency = $this->currencyForCountry($actor ? (string) $actor->country : null);
-        $additionalTaxItems = $this->userAdditionalTaxItems();
+        $additionalTaxItems = $this->teamAdditionalTaxItems();
 
         $allInvoices = $this->applyActorScope(Invoice::query())
             ->where('financial_year_id', $financialYear->id)

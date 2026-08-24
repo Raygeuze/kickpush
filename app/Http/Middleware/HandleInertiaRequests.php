@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Middleware;
+use App\Models\UserAdditionalTax;
 use Laravel\Fortify\Features;
 use Laravel\Jetstream\Jetstream;
 
@@ -40,11 +41,30 @@ class HandleInertiaRequests extends Middleware
     {
         $user = $request->user();
         $currentTeam = $user ? $user->currentTeam : null;
+        $currentTeamId = $currentTeam ? (int) $currentTeam->id : null;
         $allTeams = $user ? $user->allTeams()->map(fn ($team) => [
             'id' => (int) $team->id,
             'name' => (string) $team->name,
             'personal_team' => (bool) $team->personal_team,
         ])->values()->all() : [];
+        $teamAdditionalTaxes = $currentTeamId !== null
+            ? UserAdditionalTax::query()
+                ->where('team_id', $currentTeamId)
+                ->orderBy('position')
+                ->orderBy('id')
+                ->get(['id', 'name', 'category', 'value_type', 'value', 'currency', 'position'])
+                ->map(fn ($item) => [
+                    'id' => (int) $item->id,
+                    'name' => (string) $item->name,
+                    'category' => (string) $item->category,
+                    'value_type' => (string) $item->value_type,
+                    'value' => (float) $item->value,
+                    'currency' => $item->currency ? (string) $item->currency : null,
+                    'position' => (int) $item->position,
+                ])
+                ->values()
+                ->all()
+            : [];
 
         return array_merge(parent::share($request), [
             'jetstream' => [
@@ -64,21 +84,10 @@ class HandleInertiaRequests extends Middleware
                             'id' => (int) $currentTeam->id,
                             'name' => (string) $currentTeam->name,
                             'personal_team' => (bool) $currentTeam->personal_team,
+                            'is_owner' => $user->ownsTeam($currentTeam),
                         ] : null,
                         'all_teams' => $allTeams,
-                        'additional_taxes' => $user->additionalTaxes()
-                            ->get(['id', 'name', 'category', 'value_type', 'value', 'currency', 'position'])
-                            ->map(fn ($item) => [
-                                'id' => (int) $item->id,
-                                'name' => (string) $item->name,
-                                'category' => (string) $item->category,
-                                'value_type' => (string) $item->value_type,
-                                'value' => (float) $item->value,
-                                'currency' => $item->currency ? (string) $item->currency : null,
-                                'position' => (int) $item->position,
-                            ])
-                            ->values()
-                            ->all(),
+                        'additional_taxes' => $teamAdditionalTaxes,
                     ])
                     : null,
             ],

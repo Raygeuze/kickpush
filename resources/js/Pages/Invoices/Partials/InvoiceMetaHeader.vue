@@ -147,6 +147,7 @@ const emit = defineEmits(['deleteInvoice', 'finalizeInvoice', 'markInvoicePaid',
                 </p>
 
                 <Link
+                    v-if="$page.props.auth.user?.current_team?.is_owner"
                     :href="route('invoices.taxSummary', invoice.id)"
                     class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
                 >

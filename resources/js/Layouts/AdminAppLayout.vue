@@ -58,7 +58,7 @@ const logout = () => {
                             <div class="ms-3 relative">
                                 <!-- Teams Dropdown -->
                                 <Dropdown
-                                    v-if="$page.props.jetstream.hasTeamFeatures && $page.props.auth.user.current_team"
+                                    v-if="$page.props.jetstream.hasTeamFeatures && $page.props.auth.user.current_team?.is_owner"
                                     align="right"
                                     width="60"
                                 >
@@ -82,7 +82,10 @@ const logout = () => {
                                             </div>
 
                                             <!-- Team Settings -->
-                                            <DropdownLink :href="route('teams.show', $page.props.auth.user.current_team)">
+                                            <DropdownLink
+                                                v-if="$page.props.auth.user.current_team?.is_owner"
+                                                :href="route('teams.show', $page.props.auth.user.current_team)"
+                                            >
                                                 Team Settings
                                             </DropdownLink>
 
@@ -234,7 +237,7 @@ const logout = () => {
                             </form>
 
                             <!-- Team Management -->
-                            <template v-if="$page.props.jetstream.hasTeamFeatures">
+                            <template v-if="$page.props.jetstream.hasTeamFeatures && $page.props.auth.user.current_team?.is_owner">
                                 <div class="border-t border-gray-200" />
 
                                 <div class="block px-4 py-2 text-xs text-gray-400">
@@ -243,7 +246,7 @@ const logout = () => {
 
                                 <!-- Team Settings -->
                                 <ResponsiveNavLink
-                                    v-if="$page.props.auth.user.current_team"
+                                    v-if="$page.props.auth.user.current_team?.is_owner"
                                     :href="route('teams.show', $page.props.auth.user.current_team)"
                                     :active="route().current('teams.show')"
                                 >
