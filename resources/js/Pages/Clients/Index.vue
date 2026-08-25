@@ -8,11 +8,14 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    mode: {
+        type: String,
+        default: 'overview',
+    },
 });
 
 const clients = ref([]);
 const selectedClientId = ref(null);
-const activePanel = ref('projects');
 const clientSearch = ref('');
 const taskSearch = ref('');
 
@@ -133,6 +136,10 @@ const selectedClientActiveProjects = computed(() => {
 });
 
 const selectedClientTasks = computed(() => selectedClient.value?.tasks || []);
+
+const isOverviewMode = computed(() => props.mode === 'overview');
+const isProjectsMode = computed(() => props.mode === 'projects');
+const isTasksMode = computed(() => props.mode === 'tasks');
 
 const filteredSelectedTasks = computed(() => {
     const query = taskSearch.value.trim().toLowerCase();
@@ -517,9 +524,15 @@ ensureClientSelection();
             <div class="mx-auto w-full max-w-7xl space-y-6 rounded-2xl bg-white p-6 shadow-lg dark:bg-gray-900 sm:p-8">
                 <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Client Workspace</h1>
+                        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
+                            {{ isProjectsMode ? 'Client Projects' : (isTasksMode ? 'Client Tasks' : 'Client Workspace') }}
+                        </h1>
                         <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                            Manage one client at a time, with projects and tasks grouped in one place.
+                            {{ isProjectsMode
+                                ? 'Manage client projects in a dedicated workspace.'
+                                : (isTasksMode
+                                    ? 'Manage client tasks in a dedicated workspace.'
+                                    : 'Manage client details and open dedicated pages for projects and tasks.') }}
                         </p>
                     </div>
 
@@ -534,6 +547,30 @@ ensureClientSelection();
                             Add Client
                         </Link>
                     </div>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <Link
+                        :href="route('clients.index')"
+                        class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+                        :class="isOverviewMode ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'"
+                    >
+                        Overview
+                    </Link>
+                    <Link
+                        :href="route('clients.projectsPage')"
+                        class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+                        :class="isProjectsMode ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'"
+                    >
+                        Projects
+                    </Link>
+                    <Link
+                        :href="route('clients.tasksPage')"
+                        class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+                        :class="isTasksMode ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'"
+                    >
+                        Tasks
+                    </Link>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -683,26 +720,13 @@ ensureClientSelection();
                                 </div>
                             </div>
 
-                            <div class="flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
-                                    :class="activePanel === 'projects' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'"
-                                    @click="activePanel = 'projects'"
-                                >
-                                    Projects
-                                </button>
-                                <button
-                                    type="button"
-                                    class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
-                                    :class="activePanel === 'tasks' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'"
-                                    @click="activePanel = 'tasks'"
-                                >
-                                    Tasks
-                                </button>
+                            <div v-if="isOverviewMode" class="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                                Open <Link :href="route('clients.projectsPage')" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-400">Projects</Link> or
+                                <Link :href="route('clients.tasksPage')" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-400">Tasks</Link>
+                                to manage this client's work items.
                             </div>
 
-                            <div v-if="activePanel === 'projects'" class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                            <div v-if="isProjectsMode" class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
                                 <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Projects</h3>
 
                                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -831,7 +855,7 @@ ensureClientSelection();
                                 </div>
                             </div>
 
-                            <div v-if="activePanel === 'tasks'" class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                            <div v-if="isTasksMode" class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
                                 <div class="flex flex-wrap items-center justify-between gap-3">
                                     <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Tasks</h3>
                                     <input

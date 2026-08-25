@@ -51,6 +51,12 @@ const logout = () => {
                                 <NavLink v-if="$page.props.auth.user" :href="route('clients.index')" :active="route().current('clients.index')">
                                     Clients
                                 </NavLink>
+                                <NavLink v-if="$page.props.auth.user" :href="route('clients.projectsPage')" :active="route().current('clients.projectsPage')">
+                                    Projects
+                                </NavLink>
+                                <NavLink v-if="$page.props.auth.user" :href="route('clients.tasksPage')" :active="route().current('clients.tasksPage')">
+                                    Tasks
+                                </NavLink>
                                 <NavLink v-if="$page.props.auth.user" :href="route('businessExpenses.index')" :active="route().current('businessExpenses.*')">
                                     Business Expenses
                                 </NavLink>
@@ -186,6 +192,12 @@ const logout = () => {
                         </ResponsiveNavLink>
                         <ResponsiveNavLink v-if="$page.props.auth.user" :href="route('clients.index')" :active="route().current('clients.index')">
                             Clients
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink v-if="$page.props.auth.user" :href="route('clients.projectsPage')" :active="route().current('clients.projectsPage')">
+                            Projects
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink v-if="$page.props.auth.user" :href="route('clients.tasksPage')" :active="route().current('clients.tasksPage')">
+                            Tasks
                         </ResponsiveNavLink>
                         <ResponsiveNavLink v-if="$page.props.auth.user" :href="route('businessExpenses.index')" :active="route().current('businessExpenses.*')">
                             Business Expenses

@@ -27,6 +27,8 @@ Route::middleware('auth')->group(function () {
         ->name('teams.paymentInformation.update');
 
     Route::get('/clients', [ClientController::class, 'indexPage'])->name('clients.index');
+    Route::get('/clients/projects', [ClientController::class, 'projectsPage'])->name('clients.projectsPage');
+    Route::get('/clients/tasks', [ClientController::class, 'tasksPage'])->name('clients.tasksPage');
     Route::get('/clients/create', [ClientController::class, 'createPage'])->name('clients.createPage');
     Route::get('/clients/list', [ClientController::class, 'list'])->name('clients.list');
     Route::post('/clients/create', [ClientController::class, 'create'])->name('clients.create');

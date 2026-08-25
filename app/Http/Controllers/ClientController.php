@@ -12,6 +12,18 @@ use Inertia\Response;
 
 class ClientController extends Controller
 {
+    private function loadTeamClients(int $teamId)
+    {
+        return Client::query()
+            ->where('team_id', $teamId)
+            ->with([
+                'projects:id,client_id,name,description,is_active,created_at,updated_at',
+                'tasks:id,client_id,project_id,name,description,is_active,is_default,created_at,updated_at',
+            ])
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'currency', 'hourly_rate', 'notes', 'created_at', 'updated_at']);
+    }
+
     private function currentTeamIdOrFail(): int
     {
         $user = Auth::user();
@@ -27,17 +39,33 @@ class ClientController extends Controller
 
         $teamId = $this->currentTeamIdOrFail();
 
-        $clients = Client::query()
-            ->where('team_id', $teamId)
-            ->with([
-                'projects:id,client_id,name,description,is_active,created_at,updated_at',
-                'tasks:id,client_id,project_id,name,description,is_active,is_default,created_at,updated_at',
-            ])
-            ->orderBy('name')
-            ->get(['id', 'name', 'email', 'currency', 'hourly_rate', 'notes', 'created_at', 'updated_at']);
+        return Inertia::render('Clients/Index', [
+            'clients' => $this->loadTeamClients($teamId),
+            'mode' => 'overview',
+        ]);
+    }
+
+    public function projectsPage(): Response
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $teamId = $this->currentTeamIdOrFail();
 
         return Inertia::render('Clients/Index', [
-            'clients' => $clients,
+            'clients' => $this->loadTeamClients($teamId),
+            'mode' => 'projects',
+        ]);
+    }
+
+    public function tasksPage(): Response
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $teamId = $this->currentTeamIdOrFail();
+
+        return Inertia::render('Clients/Index', [
+            'clients' => $this->loadTeamClients($teamId),
+            'mode' => 'tasks',
         ]);
     }
 
@@ -54,17 +82,8 @@ class ClientController extends Controller
 
         $teamId = $this->currentTeamIdOrFail();
 
-        $clients = Client::query()
-            ->where('team_id', $teamId)
-            ->with([
-                'projects:id,client_id,name,description,is_active,created_at,updated_at',
-                'tasks:id,client_id,project_id,name,description,is_active,is_default,created_at,updated_at',
-            ])
-            ->orderBy('name')
-            ->get(['id', 'name', 'email', 'currency', 'hourly_rate', 'notes', 'created_at', 'updated_at']);
-
         return response()->json([
-            'clients' => $clients,
+            'clients' => $this->loadTeamClients($teamId),
         ]);
     }
 
