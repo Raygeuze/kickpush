@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Client;
+use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\TimerSession;
 use Illuminate\Http\JsonResponse;
@@ -58,6 +59,11 @@ class ProjectController extends Controller
                     'total_duration_seconds' => 0,
                     'total_billable_amount' => 0,
                     'average_session_seconds' => 0,
+                    'project_invoice_count' => 0,
+                    'project_paid_invoice_count' => 0,
+                    'project_sent_invoice_count' => 0,
+                    'project_in_progress_invoice_count' => 0,
+                    'project_overdue_invoice_count' => 0,
                     'first_tracked_at' => null,
                     'last_tracked_at' => null,
                 ],
@@ -113,6 +119,11 @@ class ProjectController extends Controller
                     'total_duration_seconds' => 0,
                     'total_billable_amount' => 0,
                     'average_session_seconds' => 0,
+                    'project_invoice_count' => 0,
+                    'project_paid_invoice_count' => 0,
+                    'project_sent_invoice_count' => 0,
+                    'project_in_progress_invoice_count' => 0,
+                    'project_overdue_invoice_count' => 0,
                     'first_tracked_at' => null,
                     'last_tracked_at' => null,
                 ],
@@ -151,6 +162,44 @@ class ProjectController extends Controller
         $runningSessionsCount = (clone $baseSessionsQuery)
             ->whereNull('stopped_at')
             ->count();
+
+        $projectInvoiceIds = (clone $baseSessionsQuery)
+            ->whereNotNull('invoice_id')
+            ->distinct()
+            ->pluck('invoice_id')
+            ->map(fn ($invoiceId): int => (int) $invoiceId)
+            ->all();
+
+        $projectInvoiceCount = 0;
+        $projectPaidInvoiceCount = 0;
+        $projectSentInvoiceCount = 0;
+        $projectInProgressInvoiceCount = 0;
+        $projectOverdueInvoiceCount = 0;
+
+        if (!empty($projectInvoiceIds)) {
+            $projectInvoices = Invoice::query()
+                ->whereIn('id', $projectInvoiceIds)
+                ->get(['id', 'status', 'due_at']);
+
+            $projectInvoiceCount = (int) $projectInvoices->count();
+
+            foreach ($projectInvoices as $projectInvoice) {
+                if ($projectInvoice->status === 'paid') {
+                    $projectPaidInvoiceCount += 1;
+                    continue;
+                }
+
+                $isOverdue = $projectInvoice->due_at !== null && $projectInvoice->due_at->lt(now());
+
+                if ($isOverdue) {
+                    $projectOverdueInvoiceCount += 1;
+                } elseif ($projectInvoice->status === 'finalized') {
+                    $projectSentInvoiceCount += 1;
+                } else {
+                    $projectInProgressInvoiceCount += 1;
+                }
+            }
+        }
 
         $sessionCount = $sessions->count();
         $totalDurationSeconds = (int) $sessions->sum(fn (TimerSession $session): int => (int) ($session->duration_seconds ?? 0));
@@ -265,6 +314,11 @@ class ProjectController extends Controller
                 'total_duration_seconds' => $totalDurationSeconds,
                 'total_billable_amount' => round(($totalDurationSeconds / 3600) * $hourlyRate, 2),
                 'average_session_seconds' => $averageSessionSeconds,
+                'project_invoice_count' => $projectInvoiceCount,
+                'project_paid_invoice_count' => $projectPaidInvoiceCount,
+                'project_sent_invoice_count' => $projectSentInvoiceCount,
+                'project_in_progress_invoice_count' => $projectInProgressInvoiceCount,
+                'project_overdue_invoice_count' => $projectOverdueInvoiceCount,
                 'first_tracked_at' => $firstTrackedAt ? $firstTrackedAt->toIso8601String() : null,
                 'last_tracked_at' => $lastTrackedAt ? $lastTrackedAt->toIso8601String() : null,
             ],

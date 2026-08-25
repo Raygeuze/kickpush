@@ -184,7 +184,7 @@ function applyWorkerFilter() {
                         </div>
                     </div>
 
-                    <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
                             <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Tasks</p>
                             <p class="mt-2 text-xl font-bold text-gray-900 dark:text-white">{{ summary.task_count }}</p>
@@ -195,12 +195,29 @@ function applyWorkerFilter() {
                             <p class="mt-2 text-xl font-bold text-gray-900 dark:text-white">{{ formatDuration(summary.average_session_seconds) }}</p>
                         </div>
                         <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                            <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">First Tracked</p>
-                            <p class="mt-2 text-xl font-bold text-gray-900 dark:text-white">{{ formatDate(summary.first_tracked_at) }}</p>
-                        </div>
-                        <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                            <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Last Tracked</p>
-                            <p class="mt-2 text-xl font-bold text-gray-900 dark:text-white">{{ formatDate(summary.last_tracked_at) }}</p>
+                            <p class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Invoice Status</p>
+                            <div class="mt-2 space-y-1 text-sm text-gray-800 dark:text-gray-200">
+                                <div class="flex items-center justify-between gap-4 border-b border-gray-100 pb-1 dark:border-gray-700">
+                                    <span class="font-semibold">Total</span>
+                                    <span class="font-semibold tabular-nums">{{ summary.project_invoice_count }}</span>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span>Paid</span>
+                                    <span class="tabular-nums">{{ summary.project_paid_invoice_count }}</span>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span>Sent</span>
+                                    <span class="tabular-nums">{{ summary.project_sent_invoice_count }}</span>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span>In Progress</span>
+                                    <span class="tabular-nums">{{ summary.project_in_progress_invoice_count }}</span>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span>Overdue</span>
+                                    <span class="tabular-nums">{{ summary.project_overdue_invoice_count }}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
