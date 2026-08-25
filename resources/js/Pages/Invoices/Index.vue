@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
@@ -43,6 +43,29 @@ const selectedFinancialYearId = ref(String(props.selectedFinancialYearId));
 const invoicesList = ref([...props.invoices]);
 const markingPaidIds = ref([]);
 const deletingInvoiceIds = ref([]);
+
+watch(
+    () => props.invoices,
+    (nextInvoices) => {
+        invoicesList.value = [...(nextInvoices || [])];
+        markingPaidIds.value = [];
+        deletingInvoiceIds.value = [];
+    }
+);
+
+watch(
+    () => props.selectedClientId,
+    (nextClientId) => {
+        selectedClientId.value = nextClientId ? String(nextClientId) : '';
+    }
+);
+
+watch(
+    () => props.selectedFinancialYearId,
+    (nextFinancialYearId) => {
+        selectedFinancialYearId.value = String(nextFinancialYearId);
+    }
+);
 
 const financialYearOptions = computed(() => {
     return props.financialYears.map((financialYear) => ({

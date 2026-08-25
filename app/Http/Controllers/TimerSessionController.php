@@ -3,13 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
+use App\Models\FinancialYear;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimerSession;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class TimerSessionController extends Controller
 {
@@ -62,6 +66,11 @@ class TimerSessionController extends Controller
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $session = $this->findActiveSession();
+
+        if ($session) {
+            $session->loadMissing('task.project.client');
+        }
+
         $isRunning = $session !== null && $session->paused_at === null;
         $isPaused = $session !== null && $session->paused_at !== null;
 
@@ -80,6 +89,7 @@ class TimerSessionController extends Controller
 
         $validated = $request->validate([
             'project_id' => 'required|integer|exists:projects,id',
+            'task_id' => 'required|integer|exists:tasks,id',
         ]);
 
         $existing = $this->findActiveSession();
@@ -99,10 +109,18 @@ class TimerSessionController extends Controller
             ], 422);
         }
 
+        $task = $this->findTaskForProjectOrFail((int) $validated['task_id'], $project);
+
+        if ($task->is_active === false) {
+            return response()->json([
+                'message' => 'Cannot start a timer session on an archived task.',
+            ], 422);
+        }
+
         $session = TimerSession::create([
             'user_id' => Auth::id(),
             'team_id' => $this->currentTeamIdOrFail(),
-            'task_id' => $this->findDefaultTaskForProject($project)->id,
+            'task_id' => $task->id,
             'started_at' => now(),
             'accumulated_seconds' => 0,
         ]);
@@ -208,25 +226,10 @@ class TimerSessionController extends Controller
 
         $validated = $request->validate([
             'session_id' => 'required|integer|exists:timer_sessions,id',
-            'invoice_id' => 'required|integer|exists:invoices,id',
-            'task_id' => 'nullable|integer|exists:tasks,id',
         ]);
 
-        $invoice = $this->applyActorScope(Invoice::query())
-            ->whereKey((int) $validated['invoice_id'])
-            ->first();
-
-        if (!$invoice) {
-            abort(403, 'Invoice does not belong to this user.');
-        }
-
-        if (in_array($invoice->status, ['finalized', 'paid'], true)) {
-            return response()->json([
-                'message' => 'Finalized or paid invoices cannot receive new timer sessions.',
-            ], 422);
-        }
-
         $session = $this->applyCurrentUserScope(TimerSession::query())
+            ->with('task.project')
             ->whereKey((int) $validated['session_id'])
             ->first();
 
@@ -238,23 +241,95 @@ class TimerSessionController extends Controller
 
         if ($session->stopped_at === null) {
             return response()->json([
-                'message' => 'Stop the timer session before submitting it to an invoice.',
+                'message' => 'Stop the timer session before confirming it.',
             ], 422);
         }
 
-        $task = $this->resolveInvoiceTaskForSession(
-            $invoice,
-            $session,
-            isset($validated['task_id']) ? (int) $validated['task_id'] : null
-        );
+        if ($session->invoice_id !== null) {
+            $existingInvoice = $this->applyActorScope(Invoice::query())
+                ->whereKey((int) $session->invoice_id)
+                ->first();
 
-        $session->invoice_id = (int) $validated['invoice_id'];
-        $session->task_id = $task->id;
-        $session->save();
+            if ($existingInvoice) {
+                return response()->json([
+                    'message' => 'Timer session is already confirmed on an invoice.',
+                    'session' => $session,
+                    'invoice' => $existingInvoice,
+                ], 200);
+            }
+        }
+
+        $task = $session->task;
+        $project = $task ? $task->project : null;
+
+        if (!$task || !$project) {
+            return response()->json([
+                'message' => 'Timer session task/project is missing. Reassign the session task before confirming.',
+            ], 422);
+        }
+
+        if ($project->client_id === null) {
+            return response()->json([
+                'message' => 'Project must belong to a client before confirming timer sessions.',
+            ], 422);
+        }
+
+        $teamId = $this->currentTeamIdOrFail();
+        $userId = (int) Auth::id();
+        $taskClientId = (int) $project->client_id;
+        $sessionId = (int) $session->id;
+
+        $assignment = DB::transaction(function () use ($sessionId, $teamId, $userId, $taskClientId): array {
+            $lockedSession = $this->applyCurrentUserScope(TimerSession::query())
+                ->lockForUpdate()
+                ->whereKey($sessionId)
+                ->first();
+
+            abort_unless($lockedSession !== null, 404, 'Timer session not found for this user.');
+
+            if ($lockedSession->invoice_id !== null) {
+                $existingInvoice = $this->applyActorScope(Invoice::query())
+                    ->whereKey((int) $lockedSession->invoice_id)
+                    ->first();
+
+                if ($existingInvoice) {
+                    return [
+                        'session' => $lockedSession,
+                        'invoice' => $existingInvoice,
+                    ];
+                }
+            }
+
+            $draftInvoice = Invoice::query()
+                ->where('team_id', $teamId)
+                ->where('client_id', $taskClientId)
+                ->where('status', 'draft')
+                ->latest('created_at')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$draftInvoice) {
+                $draftInvoice = $this->createDraftInvoiceForClient($userId, $teamId, $taskClientId);
+            }
+
+            $lockedSession->invoice_id = (int) $draftInvoice->id;
+            $lockedSession->save();
+
+            return [
+                'session' => $lockedSession,
+                'invoice' => $draftInvoice,
+            ];
+        });
+
+        /** @var TimerSession $assignedSession */
+        $assignedSession = $assignment['session'];
+        /** @var Invoice $assignedInvoice */
+        $assignedInvoice = $assignment['invoice'];
 
         return response()->json([
-            'message' => 'Timer session submitted to invoice.',
-            'session' => $session,
+            'message' => 'Timer session confirmed and assigned to draft invoice.',
+            'session' => $assignedSession,
+            'invoice' => $assignedInvoice,
         ]);
     }
 
@@ -338,90 +413,78 @@ class TimerSessionController extends Controller
         return $project;
     }
 
-    private function findDefaultTaskForProject(Project $project): Task
+    private function findTaskForProjectOrFail(int $taskId, Project $project): Task
     {
-        $defaultTask = Task::query()
+        $task = Task::query()
+            ->where('team_id', $this->currentTeamIdOrFail())
             ->where('project_id', $project->id)
-            ->where('is_default', true)
-            ->where('is_active', true)
+            ->whereKey($taskId)
             ->first();
 
-        if ($defaultTask) {
-            return $defaultTask;
-        }
+        abort_unless($task !== null, 422, 'Selected task does not belong to the selected project.');
 
-        $firstTask = Task::query()
-            ->where('project_id', $project->id)
-            ->where('is_active', true)
-            ->orderBy('id')
-            ->first();
-
-        if ($firstTask) {
-            return $firstTask;
-        }
-
-        abort(422, 'Create at least one active task in the selected project before starting a timer session.');
+        return $task;
     }
 
-    private function resolveInvoiceTaskForSession(Invoice $invoice, TimerSession $session, ?int $taskId = null): Task
+    private function createDraftInvoiceForClient(int $userId, int $teamId, int $clientId): Invoice
     {
-        if ($invoice->client_id === null) {
-            abort(422, 'Assign a client to the invoice before submitting timer sessions.');
-        }
+        $financialYear = $this->findOrCreateFinancialYearForTeam($userId, $teamId, $this->defaultNzFinancialYearStart());
 
-        if ($taskId !== null) {
-            $selectedTask = Task::query()
-                ->whereKey($taskId)
-                ->where('team_id', $this->currentTeamIdOrFail())
-                ->where('is_active', true)
-                ->first();
+        $invoice = Invoice::create([
+            'user_id' => $userId,
+            'team_id' => $teamId,
+            'client_id' => $clientId,
+            'financial_year_id' => $financialYear->id,
+            'invoice_number' => $this->generateTemporaryInvoiceNumber(),
+            'status' => 'draft',
+        ]);
 
-            if (!$selectedTask || (int) $selectedTask->client_id !== (int) $invoice->client_id) {
-                abort(422, 'Selected task does not belong to the invoice client.');
-            }
+        $invoice->invoice_number = (string) $invoice->id;
+        $invoice->save();
 
-            return $selectedTask;
-        }
-
-        if ($session->task_id !== null) {
-            $existingTask = Task::query()
-                ->whereKey($session->task_id)
-                ->where('team_id', $this->currentTeamIdOrFail())
-                ->where('is_active', true)
-                ->first();
-
-            if ($existingTask && (int) $existingTask->client_id === (int) $invoice->client_id) {
-                return $existingTask;
-            }
-        }
-
-        return $this->findDefaultTaskForClient((int) $invoice->client_id);
+        return $invoice;
     }
 
-    private function findDefaultTaskForClient(int $clientId): Task
+    private function defaultNzFinancialYearStart(): int
     {
-        $defaultTask = Task::query()
-            ->where('team_id', $this->currentTeamIdOrFail())
-            ->where('client_id', $clientId)
-            ->where('is_default', true)
-            ->where('is_active', true)
-            ->first();
+        $nowNz = CarbonImmutable::now('Pacific/Auckland');
 
-        if ($defaultTask) {
-            return $defaultTask;
-        }
+        return $nowNz->month >= 4 ? $nowNz->year : $nowNz->subYear()->year;
+    }
 
-        $firstTask = Task::query()
-            ->where('team_id', $this->currentTeamIdOrFail())
-            ->where('client_id', $clientId)
-            ->where('is_active', true)
-            ->orderBy('id')
-            ->first();
+    private function nzFinancialYearPeriod(int $financialYearStart): array
+    {
+        $start = CarbonImmutable::create($financialYearStart, 4, 1, 0, 0, 0, 'Pacific/Auckland');
+        $end = $start->addYear()->subDay();
 
-        if ($firstTask) {
-            return $firstTask;
-        }
+        return [
+            'start' => $start,
+            'end' => $end,
+            'label' => $financialYearStart . '/' . ($financialYearStart + 1),
+        ];
+    }
 
-        abort(422, 'Create at least one active task for this invoice client before submitting sessions.');
+    private function findOrCreateFinancialYearForTeam(int $userId, int $teamId, int $startYear): FinancialYear
+    {
+        $period = $this->nzFinancialYearPeriod($startYear);
+
+        return FinancialYear::query()->firstOrCreate(
+            [
+                'team_id' => $teamId,
+                'start_year' => $startYear,
+            ],
+            [
+                'user_id' => $userId,
+                'end_year' => $startYear + 1,
+                'label' => $period['label'],
+                'start_date' => $period['start']->toDateString(),
+                'end_date' => $period['end']->toDateString(),
+            ]
+        );
+    }
+
+    private function generateTemporaryInvoiceNumber(): string
+    {
+        return 'TMP-' . (string) Str::uuid();
     }
 }

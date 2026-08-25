@@ -7,33 +7,78 @@ const elapsedSeconds = ref(0);
 const activeSessionId = ref(null);
 const statusMessage = ref('');
 const isLoading = ref(false);
-const isCreatingInvoice = ref(false);
 const isSubmittingSession = ref(false);
 const historySessions = ref([]);
-const currentInvoice = ref(null);
 const clients = ref([]);
-const selectedClientId = ref('');
 const selectedProjectId = ref('');
-const invoiceNotes = ref('');
+const selectedTaskId = ref('');
 const pendingSessionId = ref(null);
-const isCreatingInvoiceFlowOpen = ref(false);
+const lastConfirmedInvoiceId = ref(null);
 
 let intervalId = null;
 let runningBaselineSeconds = 0;
 let runningStartedAtMs = null;
 
-const isInvoiceFinalized = computed(() => currentInvoice.value?.status === 'finalized');
-const shouldShowInvoiceSetup = computed(() => !currentInvoice.value || isCreatingInvoiceFlowOpen.value);
-const currentInvoiceProjects = computed(() => {
-    const invoiceClientId = currentInvoice.value?.client?.id;
+const availableProjects = computed(() => {
+    return (clients.value || []).flatMap((client) => {
+        const projects = Array.isArray(client?.projects) ? client.projects : [];
 
-    if (!invoiceClientId) {
+        return projects
+            .filter((project) => project?.is_active !== false)
+            .map((project) => ({
+                id: project.id,
+                name: project.name,
+                client_id: client.id,
+                client_name: client.name,
+            }));
+    });
+});
+
+const availableProjectsByClient = computed(() => {
+    const groups = new Map();
+
+    availableProjects.value.forEach((project) => {
+        const clientName = String(project?.client_name || 'Unassigned client');
+
+        if (!groups.has(clientName)) {
+            groups.set(clientName, []);
+        }
+
+        groups.get(clientName).push(project);
+    });
+
+    return Array.from(groups.entries())
+        .map(([clientName, projects]) => ({
+            clientName,
+            projects: [...projects].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
+        }))
+        .sort((a, b) => a.clientName.localeCompare(b.clientName));
+});
+
+const availableTasks = computed(() => {
+    if (!selectedProjectId.value) {
         return [];
     }
 
-    const client = (clients.value || []).find((item) => Number(item.id) === Number(invoiceClientId));
+    const projectId = Number(selectedProjectId.value);
 
-    return (client?.projects || []).filter((project) => project?.is_active !== false);
+    return (clients.value || []).flatMap((client) => {
+        const tasks = Array.isArray(client?.tasks) ? client.tasks : [];
+
+        return tasks
+            .filter((task) => Number(task?.project_id) === projectId)
+            .filter((task) => task?.is_active !== false)
+            .map((task) => ({
+                id: task.id,
+                name: task.name,
+                description: task.description,
+                is_default: task.is_default,
+            }));
+    });
+});
+
+const selectedProjectSummary = computed(() => {
+    return availableProjects.value.find((project) => String(project.id) === selectedProjectId.value) || null;
 });
 
 const formattedElapsed = computed(() => {
@@ -123,17 +168,11 @@ function getSessionDuration(session) {
 }
 
 async function loadHistory() {
-    if (!currentInvoice.value) {
-        historySessions.value = [];
-        return;
-    }
-
     try {
         const response = await axios.get('/timer/history', {
             params: {
                 limit: 10,
                 confirmed_only: 1,
-                invoice_id: currentInvoice.value.id,
             },
         });
 
@@ -141,16 +180,6 @@ async function loadHistory() {
     } catch (error) {
         historySessions.value = [];
         statusMessage.value = error?.response?.data?.message || 'Failed to load session history.';
-    }
-}
-
-async function loadLatestInvoice() {
-    try {
-        const response = await axios.get('/invoices/latest');
-
-        currentInvoice.value = response.data.invoice;
-    } catch {
-        currentInvoice.value = null;
     }
 }
 
@@ -220,18 +249,13 @@ async function loadStatus() {
 }
 
 async function startTimer() {
-    if (!currentInvoice.value) {
-        statusMessage.value = 'Create an invoice before starting the timer.';
-        return;
-    }
-
-    if (isInvoiceFinalized.value) {
-        statusMessage.value = 'This invoice is finalized. Create a new invoice before recording more time.';
-        return;
-    }
-
     if (!selectedProjectId.value) {
         statusMessage.value = 'Select a project before starting a timer session.';
+        return;
+    }
+
+    if (!selectedTaskId.value) {
+        statusMessage.value = 'Select a task before starting a timer session.';
         return;
     }
 
@@ -240,6 +264,7 @@ async function startTimer() {
     try {
         const response = await axios.post('/timer/start', {
             project_id: Number(selectedProjectId.value),
+            task_id: Number(selectedTaskId.value),
         });
 
         statusMessage.value = response.data.message;
@@ -299,6 +324,7 @@ async function stopTimer() {
         elapsedSeconds.value = 0;
         statusMessage.value = `${response.data.message} Duration saved to database.`;
         activeSessionId.value = null;
+        lastConfirmedInvoiceId.value = null;
         pendingSessionId.value = response.data.session?.id ?? null;
     } catch (error) {
         statusMessage.value = error?.response?.data?.message || 'Failed to stop timer.';
@@ -308,12 +334,7 @@ async function stopTimer() {
 }
 
 async function submitSessionToInvoice() {
-    if (!currentInvoice.value || !pendingSessionId.value) {
-        return;
-    }
-
-    if (isInvoiceFinalized.value) {
-        statusMessage.value = 'Finalized invoices cannot receive new timer sessions.';
+    if (!pendingSessionId.value) {
         return;
     }
 
@@ -322,10 +343,10 @@ async function submitSessionToInvoice() {
     try {
         const response = await axios.post('/timer/submit-to-invoice', {
             session_id: pendingSessionId.value,
-            invoice_id: currentInvoice.value.id,
         });
 
         statusMessage.value = response.data.message;
+        lastConfirmedInvoiceId.value = response.data?.invoice?.id || null;
         pendingSessionId.value = null;
         await loadHistory();
     } catch (error) {
@@ -349,43 +370,49 @@ function runPrimaryTimerAction() {
     startTimer();
 }
 
-function openInvoiceCreateFlow() {
-    isCreatingInvoiceFlowOpen.value = true;
-}
-
-function cancelInvoiceCreateFlow() {
-    if (!currentInvoice.value) {
-        return;
-    }
-
-    isCreatingInvoiceFlowOpen.value = false;
-    selectedClientId.value = '';
-    invoiceNotes.value = '';
-}
-
 function ensureSelectedProject() {
-    const availableProjects = currentInvoiceProjects.value || [];
-
-    if (!availableProjects.length) {
+    if (!availableProjects.value.length) {
         selectedProjectId.value = '';
         return;
     }
 
-    const exists = availableProjects.some((project) => String(project.id) === selectedProjectId.value);
+    const exists = availableProjects.value.some((project) => String(project.id) === selectedProjectId.value);
 
     if (!exists) {
-        selectedProjectId.value = String(availableProjects[0].id);
+        selectedProjectId.value = String(availableProjects.value[0].id);
     }
 }
 
-watch(currentInvoiceProjects, () => {
+function ensureSelectedTask() {
+    if (!availableTasks.value.length) {
+        selectedTaskId.value = '';
+        return;
+    }
+
+    const exists = availableTasks.value.some((task) => String(task.id) === selectedTaskId.value);
+
+    if (!exists) {
+        const defaultTask = availableTasks.value.find((task) => task.is_default);
+        selectedTaskId.value = String((defaultTask || availableTasks.value[0]).id);
+    }
+}
+
+watch(availableProjects, () => {
     ensureSelectedProject();
+});
+
+watch(availableTasks, () => {
+    ensureSelectedTask();
+});
+
+watch(selectedProjectId, () => {
+    ensureSelectedTask();
 });
 
 onMounted(() => {
     loadClients();
     loadStatus();
-    loadLatestInvoice().then(loadHistory);
+    loadHistory();
 });
 
 onBeforeUnmount(() => {
@@ -396,98 +423,57 @@ onBeforeUnmount(() => {
 <template>
     <div class="w-full max-w-xl mx-auto">
         <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-lg p-6 sm:p-8 mb-6">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Invoice</h3>
-
-            <div v-if="currentInvoice" class="mt-3 rounded-xl border border-green-200 dark:border-green-800 px-4 py-3">
-                <p class="text-sm font-medium text-gray-900 dark:text-white">
-                    Active: {{ formatInvoiceId(currentInvoice.id) }}
-                </p>
-                <p v-if="currentInvoice.client" class="text-xs text-gray-600 dark:text-gray-300 mt-1">
-                    Client: {{ currentInvoice.client.name }}
-                </p>
-                <p class="text-xs text-gray-600 dark:text-gray-300 mt-1">
-                    Status: {{ currentInvoice.status }}
-                </p>
-                <p v-if="isInvoiceFinalized" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                    This invoice is locked. Create a new invoice to continue tracking billable time.
-                </p>
-                <a
-                    :href="`/invoices/${currentInvoice.id}`"
-                    class="inline-block mt-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                    View invoice details
-                </a>
-                <a
-                    href="/invoices"
-                    class="inline-block mt-2 ml-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
-                >
-                    Browse invoices
-                </a>
-            </div>
-
-            <div v-if="!currentInvoice" class="mt-4">
-                <p class="text-sm text-gray-600 dark:text-gray-300">
-                    Create an invoice first. Timer controls unlock after invoice creation.
-                </p>
-            </div>
-
-            <div v-if="currentInvoice" class="mt-4">
-                <button
-                    type="button"
-                    class="px-5 py-2.5 rounded-xl text-white font-semibold bg-blue-600 hover:bg-blue-700 transition disabled:opacity-60"
-                    :disabled="isCreatingInvoice"
-                    @click="openInvoiceCreateFlow"
-                >
-                    Create New Invoice
-                </button>
-            </div>
-
-            <div v-if="shouldShowInvoiceSetup" class="mt-4 space-y-3 rounded-xl border border-gray-200 dark:border-gray-700 px-4 py-4">
-                <h4 class="text-sm font-semibold text-gray-900 dark:text-white">New Invoice Setup</h4>
-                <p class="text-xs text-gray-600 dark:text-gray-300">
-                    Select a client for the new invoice, then create it.
-                </p>
-
-                <select
-                    v-model="selectedClientId"
-                    class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                >
-                    <option value="">No client selected</option>
-                    <option v-for="client in clients" :key="client.id" :value="String(client.id)">
-                        {{ client.name }}
-                    </option>
-                </select>
-
-                <a href="/clients/create" class="inline-block text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
-                    Create a new client
-                </a>
-
-                <textarea
-                    v-model="invoiceNotes"
-                    rows="3"
-                    class="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                    placeholder="Optional invoice notes"
-                />
-
-                <div class="flex items-center gap-3">
-                    <button
-                        type="button"
-                        class="px-5 py-2.5 rounded-xl text-white font-semibold bg-blue-600 hover:bg-blue-700 transition disabled:opacity-60"
-                        :disabled="isCreatingInvoice"
-                        @click="createInvoice"
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Session Assignment</h3>
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                Choose a project and task before starting. When you confirm a stopped session, it will automatically attach to the latest draft invoice for that client, or create a new draft if needed.
+            </p>
+            <div class="mt-4 space-y-3 rounded-xl border border-gray-200 dark:border-gray-700 px-4 py-4">
+                <div>
+                    <label class="text-xs font-medium text-gray-700 dark:text-gray-200">Project</label>
+                    <select
+                        v-model="selectedProjectId"
+                        class="mt-1 w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                        :disabled="isRunning || isPaused"
                     >
-                        {{ isCreatingInvoice ? 'Creating...' : currentInvoice ? 'Create New Invoice' : 'Create Invoice' }}
-                    </button>
-
-                    <button
-                        v-if="currentInvoice"
-                        type="button"
-                        class="px-4 py-2 rounded-xl text-sm font-semibold text-gray-700 dark:text-gray-200 bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 transition"
-                        @click="cancelInvoiceCreateFlow"
-                    >
-                        Cancel
-                    </button>
+                        <option value="">Select project</option>
+                        <optgroup
+                            v-for="group in availableProjectsByClient"
+                            :key="group.clientName"
+                            :label="group.clientName"
+                        >
+                            <option
+                                v-for="project in group.projects"
+                                :key="project.id"
+                                :value="String(project.id)"
+                            >
+                                {{ project.name }}
+                            </option>
+                        </optgroup>
+                    </select>
                 </div>
+                <div>
+                    <label class="text-xs font-medium text-gray-700 dark:text-gray-200">Task</label>
+                    <select
+                        v-model="selectedTaskId"
+                        class="mt-1 w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                        :disabled="!selectedProjectId || isRunning || isPaused"
+                    >
+                        <option value="">Select task</option>
+                        <option
+                            v-for="task in availableTasks"
+                            :key="task.id"
+                            :value="String(task.id)"
+                        >
+                            {{ task.name }}{{ task.is_default ? ' (Default)' : '' }}
+                        </option>
+                    </select>
+                </div>
+                <p v-if="selectedProjectSummary" class="text-xs text-gray-600 dark:text-gray-300">
+                    Selected client: {{ selectedProjectSummary.client_name }}
+                </p>
+                <p v-if="availableProjects.length === 0" class="text-xs text-amber-700 dark:text-amber-300">
+                    No active projects found. Create a client project and task before starting the timer.
+                </p>
             </div>
         </div>
 
@@ -497,33 +483,12 @@ onBeforeUnmount(() => {
             {{ formattedElapsed }}
         </h2>
 
-        <div class="mt-4">
-            <label class="text-xs font-medium text-gray-700 dark:text-gray-200">Project for new timer sessions</label>
-            <select
-                v-model="selectedProjectId"
-                class="mt-1 w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                :disabled="!currentInvoice || isRunning || isPaused"
-            >
-                <option value="">Select project</option>
-                <option
-                    v-for="project in currentInvoiceProjects"
-                    :key="project.id"
-                    :value="String(project.id)"
-                >
-                    {{ project.name }}
-                </option>
-            </select>
-            <p v-if="currentInvoice && currentInvoiceProjects.length === 0" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                This invoice client has no active projects. Create one before starting a timer session.
-            </p>
-        </div>
-
         <div class="mt-6 flex items-center gap-3">
             <button
                 type="button"
                 class="px-6 py-3 rounded-xl text-white font-semibold transition disabled:opacity-60"
                 :class="isRunning ? 'bg-amber-600 hover:bg-amber-700' : isPaused ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'"
-                :disabled="isLoading || !currentInvoice"
+                :disabled="isLoading || (!isRunning && !isPaused && (!selectedProjectId || !selectedTaskId))"
                 @click="runPrimaryTimerAction"
             >
                 {{ isRunning ? 'Pause Timer' : isPaused ? 'Resume Timer' : 'Start Timer' }}
@@ -533,7 +498,7 @@ onBeforeUnmount(() => {
                 v-if="isRunning || isPaused"
                 type="button"
                 class="px-5 py-3 rounded-xl text-white font-semibold bg-red-600 hover:bg-red-700 transition disabled:opacity-60"
-                :disabled="isLoading || !currentInvoice"
+                :disabled="isLoading"
                 @click="stopTimer"
             >
                 Stop Timer
@@ -551,26 +516,27 @@ onBeforeUnmount(() => {
             Session #{{ activeSessionId }}
         </p>
 
-        <div v-if="pendingSessionId && currentInvoice" class="mt-5">
+        <div v-if="pendingSessionId" class="mt-5">
             <button
                 type="button"
                 class="px-5 py-2.5 rounded-xl text-white font-semibold bg-blue-600 hover:bg-blue-700 transition disabled:opacity-60"
-                :disabled="isSubmittingSession || isInvoiceFinalized"
+                :disabled="isSubmittingSession"
                 @click="submitSessionToInvoice"
             >
-                {{ isSubmittingSession ? 'Submitting...' : 'Submit Session To Invoice' }}
+                {{ isSubmittingSession ? 'Confirming...' : 'Confirm Session' }}
             </button>
             <p class="mt-2 text-xs text-gray-600 dark:text-gray-300">
-                Session #{{ pendingSessionId }} is ready to be confirmed on invoice {{ formatInvoiceId(currentInvoice.id) }}.
+                Session #{{ pendingSessionId }} is ready for confirmation.
+                <span v-if="lastConfirmedInvoiceId">Last confirmed invoice: {{ formatInvoiceId(lastConfirmedInvoiceId) }}.</span>
             </p>
         </div>
         </div>
 
         <div class="mt-6 bg-white dark:bg-gray-900 rounded-2xl shadow-lg p-6 sm:p-8">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Confirmed Sessions For Invoice</h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Confirmed Sessions</h3>
 
             <p v-if="historySessions.length === 0" class="mt-3 text-sm text-gray-600 dark:text-gray-300">
-                No confirmed sessions yet for this invoice.
+                No confirmed sessions yet.
             </p>
 
             <div v-else class="mt-4 space-y-3">
@@ -593,6 +559,9 @@ onBeforeUnmount(() => {
                     </p>
                     <p class="text-xs text-gray-600 dark:text-gray-300">
                         Stopped: {{ session.stopped_at ? formatDateTime(session.stopped_at) : 'Running' }}
+                    </p>
+                    <p class="text-xs text-gray-600 dark:text-gray-300">
+                        Invoice: {{ session.invoice_id ? formatInvoiceId(session.invoice_id) : 'Unassigned' }}
                     </p>
                 </div>
             </div>
