@@ -5,13 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
 class TeamOwnershipController extends Controller
 {
-    public function transfer(Team $team, User $user): RedirectResponse
+    public function transfer(Request $request, Team $team, User $user): RedirectResponse
     {
         Gate::authorize('update', $team);
+        abort_unless(optional($request->user())->ownsTeam($team), 403, 'Only the team owner can transfer ownership.');
 
         abort_if($team->personal_team, 422, 'Personal team ownership cannot be transferred.');
         abort_unless($user->belongsToTeam($team), 422, 'Selected user must already be a team member.');

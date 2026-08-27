@@ -279,7 +279,7 @@ const isTeamOwner = (teamMember) => {
                                 </div>
 
                                 <button
-                                    v-if="userPermissions.canUpdateTeamMembers && !isTeamOwner(user)"
+                                    v-if="userPermissions.canUpdateTeamMembers && $page.props.auth.user.current_team?.can_transfer_ownership && !isTeamOwner(user)"
                                     class="cursor-pointer ms-6 text-sm text-indigo-600"
                                     @click="confirmOwnershipTransfer(user)"
                                 >
@@ -297,7 +297,7 @@ const isTeamOwner = (teamMember) => {
 
                                 <!-- Remove Team Member -->
                                 <button
-                                    v-else-if="userPermissions.canRemoveTeamMembers"
+                                    v-else-if="userPermissions.canRemoveTeamMembers && !isTeamOwner(user)"
                                     class="cursor-pointer ms-6 text-sm text-red-500"
                                     @click="confirmTeamMemberRemoval(user)"
                                 >

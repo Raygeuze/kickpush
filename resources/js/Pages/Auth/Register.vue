@@ -9,6 +9,10 @@ import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
+const urlParams = new URLSearchParams(window.location.search);
+const invitationFromQuery = urlParams.get('invitation') ?? '';
+const invitedEmailFromQuery = urlParams.get('email') ?? '';
+
 const countryOptions = [
     { code: 'NZ', name: 'New Zealand' },
     { code: 'AU', name: 'Australia' },
@@ -28,11 +32,12 @@ const countryOptions = [
 
 const form = useForm({
     name: '',
-    email: '',
+    email: invitedEmailFromQuery,
     country: 'NZ',
     password: '',
     password_confirmation: '',
     terms: false,
+    invitation: invitationFromQuery,
 });
 
 const submit = () => {

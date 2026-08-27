@@ -85,6 +85,8 @@ class HandleInertiaRequests extends Middleware
                             'name' => (string) $currentTeam->name,
                             'personal_team' => (bool) $currentTeam->personal_team,
                             'is_owner' => $user->ownsTeam($currentTeam),
+                            'can_manage_settings' => Gate::forUser($user)->check('update', $currentTeam),
+                            'can_transfer_ownership' => $user->ownsTeam($currentTeam),
                         ] : null,
                         'all_teams' => $allTeams,
                         'additional_taxes' => $teamAdditionalTaxes,

@@ -10,6 +10,11 @@ class TeamPolicy
 {
     use HandlesAuthorization;
 
+    protected function canManageTeam(User $user, Team $team): bool
+    {
+        return $user->ownsTeam($team) || $user->hasTeamRole($team, 'admin');
+    }
+
     public function before(User $user, $ability)
     {
         if ($user->is_admin) {
@@ -30,7 +35,7 @@ class TeamPolicy
      */
     public function view(User $user, Team $team): bool
     {
-        return $user->ownsTeam($team);
+        return $this->canManageTeam($user, $team);
     }
 
     /**
@@ -46,7 +51,7 @@ class TeamPolicy
      */
     public function update(User $user, Team $team): bool
     {
-        return $user->ownsTeam($team);
+        return $this->canManageTeam($user, $team);
     }
 
     /**
@@ -54,7 +59,7 @@ class TeamPolicy
      */
     public function addTeamMember(User $user, Team $team): bool
     {
-        return $user->ownsTeam($team);
+        return $this->canManageTeam($user, $team);
     }
 
     /**
@@ -62,7 +67,7 @@ class TeamPolicy
      */
     public function updateTeamMember(User $user, Team $team): bool
     {
-        return $user->ownsTeam($team);
+        return $this->canManageTeam($user, $team);
     }
 
     /**
@@ -70,7 +75,7 @@ class TeamPolicy
      */
     public function removeTeamMember(User $user, Team $team): bool
     {
-        return $user->ownsTeam($team);
+        return $this->canManageTeam($user, $team);
     }
 
     /**
@@ -78,6 +83,6 @@ class TeamPolicy
      */
     public function delete(User $user, Team $team): bool
     {
-        return $user->ownsTeam($team);
+        return $this->canManageTeam($user, $team);
     }
 }
