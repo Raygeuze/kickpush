@@ -24,6 +24,9 @@ class CreateNewUser implements CreatesNewUsers
         Validator::make($input, [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
+            'account_type' => ['required', 'in:individual,business'],
+            'trading_name' => ['nullable', 'required_if:account_type,individual', 'string', 'max:255'],
+            'business_name' => ['nullable', 'required_if:account_type,business', 'string', 'max:255'],
             'country' => ['required', 'string', 'size:2', 'alpha'],
             'password' => $this->passwordRules(),
             'terms' => Jetstream::hasTermsAndPrivacyPolicyFeature() ? ['accepted', 'required'] : '',
@@ -35,9 +38,8 @@ class CreateNewUser implements CreatesNewUsers
                 'email' => $input['email'],
                 'country' => strtoupper((string) $input['country']),
                 'password' => Hash::make($input['password']),
-            ]), function (User $user) {
-                // only one team created for admin by database seeder
-                // $this->createTeam($user);
+            ]), function (User $user) use ($input) {
+                $this->createTeam($user, $input);
 
                 //create stripe connected account
                 if (config('services.stripe.key') && config('services.stripe.secret')) {
@@ -48,14 +50,27 @@ class CreateNewUser implements CreatesNewUsers
     }
 
     /**
-     * Create a personal team for the user.
+     * Create and select a default team for the user.
+     *
+     * @param  array<string, mixed>  $input
      */
-    protected function createTeam(User $user): void
+    protected function createTeam(User $user, array $input): void
     {
-        $user->ownedTeams()->save(Team::forceCreate([
+        $accountType = (string) ($input['account_type'] ?? 'individual');
+        $teamName = $accountType === 'business'
+            ? trim((string) ($input['business_name'] ?? ''))
+            : trim((string) ($input['trading_name'] ?? ''));
+
+        if ($teamName === '') {
+            $teamName = $user->name;
+        }
+
+        $team = $user->ownedTeams()->save(Team::forceCreate([
             'user_id' => $user->id,
-            'name' => explode(' ', $user->name, 2)[0]."'s Team",
-            'personal_team' => true,
+            'name' => $teamName,
+            'personal_team' => false,
         ]));
+
+        $user->switchTeam($team);
     }
 }

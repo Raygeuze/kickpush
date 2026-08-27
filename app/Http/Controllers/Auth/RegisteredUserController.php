@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
@@ -41,11 +42,26 @@ class RegisteredUserController extends Controller
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
             'country' => 'required|string|size:2|alpha',
             'invitation' => 'nullable|integer',
+            'account_type' => 'nullable|in:individual,business',
+            'trading_name' => 'nullable|string|max:255',
+            'business_name' => 'nullable|string|max:255',
         ]);
+
+        $pendingInvitations = TeamInvitation::query()
+            ->where('email', strtolower((string) $request->email))
+            ->get();
+
+        if ($pendingInvitations->isEmpty()) {
+            $request->validate([
+                'account_type' => 'required|in:individual,business',
+                'trading_name' => 'nullable|required_if:account_type,individual|string|max:255',
+                'business_name' => 'nullable|required_if:account_type,business|string|max:255',
+            ]);
+        }
 
         $user = User::create([
             'name' => $request->name,
-            'email' => $request->email,
+            'email' => strtolower((string) $request->email),
             'country' => strtoupper((string) $request->country),
             'password' => Hash::make($request->password),
         ]);
@@ -53,10 +69,6 @@ class RegisteredUserController extends Controller
         event(new Registered($user));
 
         Auth::login($user);
-
-        $pendingInvitations = TeamInvitation::query()
-            ->where('email', $user->email)
-            ->get();
 
         if ($pendingInvitations->isNotEmpty()) {
             $requestedInvitationId = $request->integer('invitation');
@@ -80,8 +92,39 @@ class RegisteredUserController extends Controller
             if ($primaryInvitation !== null) {
                 $user->switchTeam($primaryInvitation->team);
             }
+        } else {
+            $this->createOwnedTeam($user, [
+                'account_type' => (string) $request->input('account_type', 'individual'),
+                'trading_name' => (string) $request->input('trading_name', ''),
+                'business_name' => (string) $request->input('business_name', ''),
+            ]);
         }
 
-        return redirect()->intended(config('fortify.home'));
+        return redirect()->intended(route('dashboard', [], false));
+    }
+
+    /**
+     * Create and select the user's primary team.
+     *
+     * @param  array{account_type:string,trading_name:string,business_name:string}  $registration
+     */
+    private function createOwnedTeam(User $user, array $registration): void
+    {
+        $accountType = $registration['account_type'];
+        $teamName = $accountType === 'business'
+            ? trim($registration['business_name'])
+            : trim($registration['trading_name']);
+
+        if ($teamName === '') {
+            $teamName = $user->name;
+        }
+
+        $team = $user->ownedTeams()->save(Team::forceCreate([
+            'user_id' => $user->id,
+            'name' => $teamName,
+            'personal_team' => false,
+        ]));
+
+        $user->switchTeam($team);
     }
 }

@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AuthenticationCard from '@/Components/AuthenticationCard.vue';
 import AuthenticationCardLogo from '@/Components/AuthenticationCardLogo.vue';
@@ -29,10 +30,12 @@ const countryOptions = [
     { code: 'ZA', name: 'South Africa' },
 ];
 
-
 const form = useForm({
     name: '',
     email: invitedEmailFromQuery,
+    account_type: 'individual',
+    trading_name: '',
+    business_name: '',
     country: 'NZ',
     password: '',
     password_confirmation: '',
@@ -40,11 +43,37 @@ const form = useForm({
     invitation: invitationFromQuery,
 });
 
+const submitError = ref('');
+
 const submit = () => {
-    axios.get('/sanctum/csrf-cookie').then(response => {
-        form.post(route('register'), {
-            onFinish: () => form.reset('password', 'password_confirmation'),
-        });
+    submitError.value = '';
+
+    form.transform((data) => ({
+        ...data,
+        invitation: data.invitation === '' ? null : Number(data.invitation),
+    })).post(route('register', [], false), {
+        onError: () => {
+            const visibleErrorKeys = [
+                'name',
+                'email',
+                'account_type',
+                'trading_name',
+                'business_name',
+                'country',
+                'password',
+                'password_confirmation',
+                'terms',
+            ];
+
+            const hiddenErrorKey = Object.keys(form.errors).find((key) => !visibleErrorKeys.includes(key));
+
+            if (hiddenErrorKey) {
+                submitError.value = String(form.errors[hiddenErrorKey]);
+            } else if (Object.keys(form.errors).length === 0) {
+                submitError.value = 'Registration failed. Please refresh and try again.';
+            }
+        },
+        onFinish: () => form.reset('password', 'password_confirmation'),
     });
 };
 </script>
@@ -61,6 +90,10 @@ const submit = () => {
                 </template>
 
                 <form @submit.prevent="submit">
+                    <div v-if="submitError" class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {{ submitError }}
+                    </div>
+
                     <div>
                         <InputLabel for="name" value="Name" />
                         <TextInput
@@ -86,6 +119,46 @@ const submit = () => {
                             autocomplete="username"
                         />
                         <InputError class="mt-2" :message="form.errors.email" />
+                    </div>
+
+                    <div class="mt-4">
+                        <InputLabel for="account_type" value="Account Type" />
+                        <select
+                            id="account_type"
+                            v-model="form.account_type"
+                            class="mt-1 block w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500"
+                            required
+                        >
+                            <option value="individual">Individual / Sole Trader</option>
+                            <option value="business">Business</option>
+                        </select>
+                        <InputError class="mt-2" :message="form.errors.account_type" />
+                    </div>
+
+                    <div v-if="form.account_type === 'individual'" class="mt-4">
+                        <InputLabel for="trading_name" value="Trading Name" />
+                        <TextInput
+                            id="trading_name"
+                            v-model="form.trading_name"
+                            type="text"
+                            class="mt-1 block w-full"
+                            required
+                            autocomplete="organization"
+                        />
+                        <InputError class="mt-2" :message="form.errors.trading_name" />
+                    </div>
+
+                    <div v-if="form.account_type === 'business'" class="mt-4">
+                        <InputLabel for="business_name" value="Business Name" />
+                        <TextInput
+                            id="business_name"
+                            v-model="form.business_name"
+                            type="text"
+                            class="mt-1 block w-full"
+                            required
+                            autocomplete="organization"
+                        />
+                        <InputError class="mt-2" :message="form.errors.business_name" />
                     </div>
 
                     <div class="mt-4">
