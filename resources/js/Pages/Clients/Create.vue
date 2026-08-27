@@ -1,7 +1,10 @@
 <script setup>
-import { ref } from 'vue';
-import { Link } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
+import { Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+
+const page = usePage();
+const canManageNonTimerRecords = computed(() => page.props.auth?.user?.current_team?.can_manage_non_timer_records !== false);
 
 const name = ref('');
 const email = ref('');
@@ -12,6 +15,11 @@ const isSubmitting = ref(false);
 const statusMessage = ref('');
 
 async function createClient() {
+    if (!canManageNonTimerRecords.value) {
+        statusMessage.value = 'Your role can only view client records.';
+        return;
+    }
+
     if (!name.value.trim()) {
         statusMessage.value = 'Client name is required.';
         return;
@@ -57,6 +65,10 @@ async function createClient() {
                     Add a client once, then select that client during invoice creation.
                 </p>
 
+                <p v-if="!canManageNonTimerRecords" class="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                    Your role is view-only for client records.
+                </p>
+
                 <div class="mt-6 space-y-3">
                     <input
                         v-model="name"
@@ -93,6 +105,7 @@ async function createClient() {
                     />
 
                     <button
+                        v-if="canManageNonTimerRecords"
                         type="button"
                         class="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-60"
                         :disabled="isSubmitting"

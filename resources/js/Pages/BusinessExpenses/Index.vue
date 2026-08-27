@@ -1,7 +1,10 @@
 <script setup>
-import { ref } from 'vue';
-import { Link } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
+import { Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+
+const page = usePage();
+const canManageNonTimerRecords = computed(() => page.props.auth?.user?.current_team?.can_manage_non_timer_records !== false);
 
 const props = defineProps({
     businessExpenses: {
@@ -53,6 +56,11 @@ function formatDate(value) {
 }
 
 async function createBusinessExpense() {
+    if (!canManageNonTimerRecords.value) {
+        statusMessage.value = 'Your role can only view business expenses.';
+        return;
+    }
+
     if (isSubmitting.value) {
         return;
     }
@@ -141,6 +149,11 @@ function onEditReceiptSelected(event) {
 }
 
 async function saveEdit(expenseId) {
+    if (!canManageNonTimerRecords.value) {
+        statusMessage.value = 'Your role can only view business expenses.';
+        return;
+    }
+
     if (isUpdating.value) {
         return;
     }
@@ -195,6 +208,11 @@ function isRemoving(expenseId) {
 }
 
 async function removeExpense(expenseId) {
+    if (!canManageNonTimerRecords.value) {
+        statusMessage.value = 'Your role can only view business expenses.';
+        return;
+    }
+
     if (isRemoving(expenseId)) {
         return;
     }
@@ -244,7 +262,11 @@ async function removeExpense(expenseId) {
                     {{ statusMessage }}
                 </p>
 
-                <div class="mt-6 rounded-xl border border-gray-200 dark:border-gray-700 p-4 sm:p-5">
+                <p v-if="!canManageNonTimerRecords" class="mt-4 text-sm text-amber-700 dark:text-amber-300">
+                    Your role is view-only for business expense records.
+                </p>
+
+                <div v-if="canManageNonTimerRecords" class="mt-6 rounded-xl border border-gray-200 dark:border-gray-700 p-4 sm:p-5">
                     <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Add Business Expense</h2>
                     <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <input
@@ -349,7 +371,7 @@ async function removeExpense(expenseId) {
                                     <p v-if="expense.tax_deductible" class="mt-1 text-xs text-gray-600 dark:text-gray-300">
                                         Deductible: {{ Number(expense.deductible_percentage || 0).toFixed(2) }}%
                                     </p>
-                                    <div class="mt-2 flex items-center justify-end gap-2">
+                                    <div v-if="canManageNonTimerRecords" class="mt-2 flex items-center justify-end gap-2">
                                         <button
                                             type="button"
                                             class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700 transition"
@@ -383,7 +405,7 @@ async function removeExpense(expenseId) {
                                 </div>
                             </div>
 
-                            <div v-else class="space-y-3">
+                            <div v-else-if="canManageNonTimerRecords" class="space-y-3">
                                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                     <input
                                         v-model="editForm.name"

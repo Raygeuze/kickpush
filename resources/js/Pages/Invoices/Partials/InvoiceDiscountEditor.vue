@@ -1,5 +1,9 @@
 <script setup>
 const props = defineProps({
+    canManageNonTimerRecords: {
+        type: Boolean,
+        default: true,
+    },
     discountType: {
         type: String,
         default: '',
@@ -44,7 +48,7 @@ function onValueChange(event) {
             <select
                 :value="discountType"
                 class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                :disabled="isFinalized || isSavingDiscount"
+                :disabled="!canManageNonTimerRecords || isFinalized || isSavingDiscount"
                 @change="onTypeChange"
             >
                 <option value="">No discount</option>
@@ -60,11 +64,12 @@ function onValueChange(event) {
                 step="0.01"
                 class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                 :placeholder="discountType === 'percentage' ? 'Percent (0-100)' : 'Amount'"
-                :disabled="isFinalized || isSavingDiscount || !discountType"
+                :disabled="!canManageNonTimerRecords || isFinalized || isSavingDiscount || !discountType"
                 @input="onValueChange"
             />
 
             <button
+                v-if="canManageNonTimerRecords"
                 type="button"
                 class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
                 :disabled="isFinalized || isSavingDiscount"
@@ -76,6 +81,9 @@ function onValueChange(event) {
 
         <p class="mt-2 text-xs text-gray-600 dark:text-gray-300">
             Applied discount: {{ formatCurrency(discountAmount || 0) }}
+        </p>
+        <p v-if="!canManageNonTimerRecords" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            Your role can view invoice discount details only.
         </p>
     </div>
 </template>

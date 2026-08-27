@@ -6,6 +6,10 @@ defineProps({
         type: Object,
         required: true,
     },
+    canManageNonTimerRecords: {
+        type: Boolean,
+        default: true,
+    },
     isPaid: {
         type: Boolean,
         default: false,
@@ -82,7 +86,7 @@ const emit = defineEmits(['deleteInvoice', 'finalizeInvoice', 'markInvoicePaid',
                     </span>
 
                     <button
-                        v-if="!isFinalized"
+                        v-if="canManageNonTimerRecords && !isFinalized"
                         type="button"
                         class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
                         :disabled="isDeletingInvoice"
@@ -101,7 +105,7 @@ const emit = defineEmits(['deleteInvoice', 'finalizeInvoice', 'markInvoicePaid',
                 </div>
 
                 <button
-                    v-if="!isFinalized"
+                    v-if="canManageNonTimerRecords && !isFinalized"
                     type="button"
                     class="rounded-xl px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
                     :class="isFinalized ? 'cursor-not-allowed bg-gray-500' : 'bg-blue-600 hover:bg-blue-700'"
@@ -112,7 +116,7 @@ const emit = defineEmits(['deleteInvoice', 'finalizeInvoice', 'markInvoicePaid',
                 </button>
 
                 <button
-                    v-if="invoice.status === 'finalized'"
+                    v-if="canManageNonTimerRecords && invoice.status === 'finalized'"
                     type="button"
                     class="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
                     :disabled="isMarkingPaid"
@@ -130,7 +134,7 @@ const emit = defineEmits(['deleteInvoice', 'finalizeInvoice', 'markInvoicePaid',
                 </a>
 
                 <button
-                    v-if="invoice.status === 'finalized'"
+                    v-if="canManageNonTimerRecords && invoice.status === 'finalized'"
                     type="button"
                     class="rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:opacity-60"
                     :disabled="isSendingInvoiceEmail || !invoice.client || !invoice.client.email"

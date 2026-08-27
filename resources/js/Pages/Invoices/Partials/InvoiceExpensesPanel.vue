@@ -1,5 +1,9 @@
 <script setup>
 defineProps({
+    canManageNonTimerRecords: {
+        type: Boolean,
+        default: true,
+    },
     isFinalized: {
         type: Boolean,
         default: false,
@@ -51,7 +55,7 @@ const emit = defineEmits([
             This invoice is finalized and cannot be changed.
         </p>
 
-        <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div v-if="canManageNonTimerRecords" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
                 :value="expenseName"
                 type="text"
@@ -74,6 +78,7 @@ const emit = defineEmits([
         </div>
 
         <textarea
+            v-if="canManageNonTimerRecords"
             :value="expenseDescription"
             rows="3"
             class="mt-3 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
@@ -83,6 +88,7 @@ const emit = defineEmits([
         />
 
         <button
+            v-if="canManageNonTimerRecords"
             type="button"
             class="mt-3 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
             :disabled="isFinalized || isSubmittingExpense"
@@ -93,6 +99,10 @@ const emit = defineEmits([
 
         <p v-if="expenses.length === 0" class="mt-5 text-sm text-gray-600 dark:text-gray-300">
             No line items added yet.
+        </p>
+
+        <p v-if="!canManageNonTimerRecords" class="mt-3 text-sm text-amber-700 dark:text-amber-300">
+            Your role can view line items only.
         </p>
 
         <div v-else class="mt-5 space-y-3">
@@ -116,6 +126,7 @@ const emit = defineEmits([
                             {{ formatCurrency(expense.amount) }}
                         </p>
                         <button
+                            v-if="canManageNonTimerRecords"
                             type="button"
                             class="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-60"
                             :class="isFinalized ? 'cursor-not-allowed bg-gray-500' : 'bg-red-600 hover:bg-red-700'"

@@ -30,6 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'is_admin' => \App\Http\Middleware\IsAdmin::class,
             'is_not_disabled' => \App\Http\Middleware\IsNotDisabled::class,
+            'team_employee_permissions' => \App\Http\Middleware\EnforceEmployeeTeamPermissions::class,
         ]);
         $middleware->statefulApi();
     })

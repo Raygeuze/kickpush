@@ -13,6 +13,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 const urlParams = new URLSearchParams(window.location.search);
 const invitationFromQuery = urlParams.get('invitation') ?? '';
 const invitedEmailFromQuery = urlParams.get('email') ?? '';
+const isInviteRegistration = invitationFromQuery !== '';
 
 const countryOptions = [
     { code: 'NZ', name: 'New Zealand' },
@@ -33,7 +34,7 @@ const countryOptions = [
 const form = useForm({
     name: '',
     email: invitedEmailFromQuery,
-    account_type: 'individual',
+    account_type: isInviteRegistration ? 'employee' : 'individual',
     trading_name: '',
     business_name: '',
     country: 'NZ',
@@ -51,6 +52,9 @@ const submit = () => {
     form.transform((data) => ({
         ...data,
         invitation: data.invitation === '' ? null : Number(data.invitation),
+        account_type: isInviteRegistration ? 'employee' : data.account_type,
+        trading_name: isInviteRegistration ? null : data.trading_name,
+        business_name: isInviteRegistration ? null : data.business_name,
     })).post(route('register', [], false), {
         onError: () => {
             const visibleErrorKeys = [
@@ -116,12 +120,13 @@ const submit = () => {
                             type="email"
                             class="mt-1 block w-full"
                             required
+                            :readonly="isInviteRegistration"
                             autocomplete="username"
                         />
                         <InputError class="mt-2" :message="form.errors.email" />
                     </div>
 
-                    <div class="mt-4">
+                    <div v-if="!isInviteRegistration" class="mt-4">
                         <InputLabel for="account_type" value="Account Type" />
                         <select
                             id="account_type"
@@ -135,7 +140,7 @@ const submit = () => {
                         <InputError class="mt-2" :message="form.errors.account_type" />
                     </div>
 
-                    <div v-if="form.account_type === 'individual'" class="mt-4">
+                    <div v-if="!isInviteRegistration && form.account_type === 'individual'" class="mt-4">
                         <InputLabel for="trading_name" value="Trading Name" />
                         <TextInput
                             id="trading_name"
@@ -148,7 +153,7 @@ const submit = () => {
                         <InputError class="mt-2" :message="form.errors.trading_name" />
                     </div>
 
-                    <div v-if="form.account_type === 'business'" class="mt-4">
+                    <div v-if="!isInviteRegistration && form.account_type === 'business'" class="mt-4">
                         <InputLabel for="business_name" value="Business Name" />
                         <TextInput
                             id="business_name"

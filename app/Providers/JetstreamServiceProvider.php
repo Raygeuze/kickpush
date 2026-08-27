@@ -57,5 +57,13 @@ class JetstreamServiceProvider extends ServiceProvider
             'create',
             'update',
         ])->description('Editor users have the ability to read, create, and update.');
+
+        Jetstream::role('employee', 'Employee', [
+            'read',
+            'timer:create',
+            'timer:read',
+            'timer:update',
+            'timer:delete',
+        ])->description('Employee users can manage timer sessions and view all other records.');
     }
 }

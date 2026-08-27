@@ -1,7 +1,10 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+
+const page = usePage();
+const canManageNonTimerRecords = computed(() => page.props.auth?.user?.current_team?.can_manage_non_timer_records !== false);
 
 const props = defineProps({
     clients: {
@@ -273,6 +276,11 @@ async function refreshClients() {
 }
 
 async function saveClientEdit() {
+    if (!canManageNonTimerRecords.value) {
+        setStatus('Your role can only view client records.', 'error');
+        return;
+    }
+
     if (isSaving.value || !selectedClient.value) {
         return;
     }
@@ -304,6 +312,11 @@ async function saveClientEdit() {
 }
 
 async function createProject() {
+    if (!canManageNonTimerRecords.value) {
+        setStatus('Your role can only view project records.', 'error');
+        return;
+    }
+
     if (isSaving.value || !selectedClient.value) {
         return;
     }
@@ -333,6 +346,11 @@ async function createProject() {
 }
 
 async function saveProjectEdit(project) {
+    if (!canManageNonTimerRecords.value) {
+        setStatus('Your role can only view project records.', 'error');
+        return;
+    }
+
     if (isSaving.value) {
         return;
     }
@@ -361,6 +379,11 @@ async function saveProjectEdit(project) {
 }
 
 async function deleteProject(project) {
+    if (!canManageNonTimerRecords.value) {
+        setStatus('Your role can only view project records.', 'error');
+        return;
+    }
+
     if (isSaving.value) {
         return;
     }
@@ -383,6 +406,11 @@ async function deleteProject(project) {
 }
 
 async function createTask() {
+    if (!canManageNonTimerRecords.value) {
+        setStatus('Your role can only view task records.', 'error');
+        return;
+    }
+
     if (isSaving.value || !selectedClient.value) {
         return;
     }
@@ -418,6 +446,11 @@ async function createTask() {
 }
 
 async function saveTaskEdit(task) {
+    if (!canManageNonTimerRecords.value) {
+        setStatus('Your role can only view task records.', 'error');
+        return;
+    }
+
     if (isSaving.value) {
         return;
     }
@@ -461,6 +494,11 @@ async function saveTaskEdit(task) {
 }
 
 async function setTaskDefault(task) {
+    if (!canManageNonTimerRecords.value) {
+        setStatus('Your role can only view task records.', 'error');
+        return;
+    }
+
     if (isSaving.value) {
         return;
     }
@@ -482,6 +520,11 @@ async function setTaskDefault(task) {
 }
 
 async function deleteTask(task) {
+    if (!canManageNonTimerRecords.value) {
+        setStatus('Your role can only view task records.', 'error');
+        return;
+    }
+
     if (isSaving.value) {
         return;
     }
@@ -541,6 +584,7 @@ ensureClientSelection();
                             Back to Timer
                         </Link>
                         <Link
+                            v-if="canManageNonTimerRecords"
                             :href="route('clients.createPage')"
                             class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
                         >
@@ -600,6 +644,10 @@ ensureClientSelection();
                     {{ statusMessage }}
                 </p>
 
+                <p v-if="!canManageNonTimerRecords" class="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+                    Your role is view-only for clients, projects, and tasks.
+                </p>
+
                 <div v-if="clients.length === 0" class="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
                     No clients yet. Create your first client to start assigning projects and tasks.
                 </div>
@@ -649,7 +697,7 @@ ensureClientSelection();
                                         </p>
                                     </div>
                                     <button
-                                        v-if="editingClientId !== selectedClient.id"
+                                        v-if="canManageNonTimerRecords && editingClientId !== selectedClient.id"
                                         type="button"
                                         class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
                                         @click="startClientEdit"
@@ -662,7 +710,7 @@ ensureClientSelection();
                                     <p class="text-sm text-gray-600 dark:text-gray-300">{{ selectedClient.notes || 'No notes added yet.' }}</p>
                                 </div>
 
-                                <div v-else class="mt-4 space-y-3">
+                                <div v-else-if="canManageNonTimerRecords" class="mt-4 space-y-3">
                                     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                         <input
                                             v-model="clientForm.name"
@@ -729,7 +777,7 @@ ensureClientSelection();
                             <div v-if="isProjectsMode" class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
                                 <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Projects</h3>
 
-                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                <div v-if="canManageNonTimerRecords" class="grid grid-cols-1 gap-3 sm:grid-cols-3">
                                     <input
                                         v-model="projectDraft.name"
                                         type="text"
@@ -786,6 +834,7 @@ ensureClientSelection();
                                                     </svg>
                                                 </Link>
                                                 <button
+                                                    v-if="canManageNonTimerRecords"
                                                     type="button"
                                                     class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:bg-gray-100 disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                                                     :disabled="isSaving"
@@ -799,6 +848,7 @@ ensureClientSelection();
                                                     </svg>
                                                 </button>
                                                 <button
+                                                    v-if="canManageNonTimerRecords"
                                                     type="button"
                                                     class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
                                                     :disabled="isSaving"
@@ -817,7 +867,7 @@ ensureClientSelection();
                                             </div>
                                         </div>
 
-                                        <div v-else class="space-y-2">
+                                        <div v-else-if="canManageNonTimerRecords" class="space-y-2">
                                             <input
                                                 v-model="projectEditForm.name"
                                                 type="text"
@@ -868,7 +918,7 @@ ensureClientSelection();
 
                                 <p class="text-xs text-gray-600 dark:text-gray-300">Tasks must belong to an active project.</p>
 
-                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                                <div v-if="canManageNonTimerRecords" class="grid grid-cols-1 gap-3 sm:grid-cols-4">
                                     <select
                                         v-model="taskDraft.project_id"
                                         class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
@@ -928,6 +978,7 @@ ensureClientSelection();
                                             </div>
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <button
+                                                    v-if="canManageNonTimerRecords"
                                                     type="button"
                                                     class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:bg-gray-100 disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                                                     :disabled="isSaving"
@@ -941,6 +992,7 @@ ensureClientSelection();
                                                     </svg>
                                                 </button>
                                                 <button
+                                                    v-if="canManageNonTimerRecords"
                                                     type="button"
                                                     class="inline-flex h-8 w-8 items-center justify-center rounded-full border transition disabled:opacity-60"
                                                     :class="task.is_default
@@ -959,6 +1011,7 @@ ensureClientSelection();
                                                     </svg>
                                                 </button>
                                                 <button
+                                                    v-if="canManageNonTimerRecords"
                                                     type="button"
                                                     class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
                                                     :disabled="isSaving"
@@ -977,7 +1030,7 @@ ensureClientSelection();
                                             </div>
                                         </div>
 
-                                        <div v-else class="space-y-2">
+                                        <div v-else-if="canManageNonTimerRecords" class="space-y-2">
                                             <select
                                                 v-model="taskEditForm.project_id"
                                                 class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"

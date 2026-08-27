@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import InvoiceDiscountEditor from '@/Pages/Invoices/Partials/InvoiceDiscountEditor.vue';
 import InvoiceSummaryCards from '@/Pages/Invoices/Partials/InvoiceSummaryCards.vue';
@@ -9,6 +9,9 @@ import InvoiceMetaHeader from '@/Pages/Invoices/Partials/InvoiceMetaHeader.vue';
 import InvoiceSessionEntryPanel from '@/Pages/Invoices/Partials/InvoiceSessionEntryPanel.vue';
 import InvoiceSessionGroupsList from '@/Pages/Invoices/Partials/InvoiceSessionGroupsList.vue';
 import { useInvoicePageController } from '@/Pages/Invoices/composables/useInvoicePageController';
+
+const page = usePage();
+const canManageNonTimerRecords = computed(() => page.props.auth?.user?.current_team?.can_manage_non_timer_records !== false);
 
 const props = defineProps({
     invoice: {
@@ -272,6 +275,7 @@ const sessionFormatters = {
                 <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
                     <InvoiceMetaHeader
                         :invoice="invoice"
+                        :can-manage-non-timer-records="canManageNonTimerRecords"
                         :is-paid="isPaid"
                         :is-finalized="isFinalized"
                         :is-deleting-invoice="isDeletingInvoice"
@@ -288,6 +292,7 @@ const sessionFormatters = {
                     />
 
                     <InvoiceDiscountEditor
+                        :can-manage-non-timer-records="canManageNonTimerRecords"
                         :discount-type="discountType"
                         :discount-value="discountValue"
                         :is-finalized="isFinalized"
@@ -342,6 +347,7 @@ const sessionFormatters = {
                 </div>
 
                 <InvoiceExpensesPanel
+                    :can-manage-non-timer-records="canManageNonTimerRecords"
                     :is-finalized="isFinalized"
                     :is-submitting-expense="isSubmittingExpense"
                     :expenses="expenses"

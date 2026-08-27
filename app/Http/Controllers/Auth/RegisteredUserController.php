@@ -42,13 +42,31 @@ class RegisteredUserController extends Controller
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
             'country' => 'required|string|size:2|alpha',
             'invitation' => 'nullable|integer',
-            'account_type' => 'nullable|in:individual,business',
+            'account_type' => 'nullable|in:individual,business,employee',
             'trading_name' => 'nullable|string|max:255',
             'business_name' => 'nullable|string|max:255',
         ]);
 
+        $email = strtolower((string) $request->email);
+        $requestedInvitationId = $request->integer('invitation');
+        $requestedInvitation = $requestedInvitationId > 0
+            ? TeamInvitation::query()->find($requestedInvitationId)
+            : null;
+
+        if ($requestedInvitation !== null) {
+            $invitedEmail = strtolower((string) $requestedInvitation->email);
+
+            if ($email !== $invitedEmail) {
+                return back()->withErrors([
+                    'email' => 'This invitation can only be accepted using the invited email address.',
+                ])->withInput();
+            }
+
+            $email = $invitedEmail;
+        }
+
         $pendingInvitations = TeamInvitation::query()
-            ->where('email', strtolower((string) $request->email))
+            ->where('email', $email)
             ->get();
 
         if ($pendingInvitations->isEmpty()) {
@@ -59,9 +77,14 @@ class RegisteredUserController extends Controller
             ]);
         }
 
+        $accountType = $pendingInvitations->isNotEmpty()
+            ? 'employee'
+            : (string) $request->input('account_type', 'individual');
+
         $user = User::create([
             'name' => $request->name,
-            'email' => strtolower((string) $request->email),
+            'email' => $email,
+            'account_type' => $accountType,
             'country' => strtoupper((string) $request->country),
             'password' => Hash::make($request->password),
         ]);
@@ -71,7 +94,6 @@ class RegisteredUserController extends Controller
         Auth::login($user);
 
         if ($pendingInvitations->isNotEmpty()) {
-            $requestedInvitationId = $request->integer('invitation');
             $orderedInvitations = $requestedInvitationId > 0
                 ? $pendingInvitations->sortByDesc(fn (TeamInvitation $invitation) => (int) $invitation->id === $requestedInvitationId)->values()
                 : $pendingInvitations;
@@ -94,7 +116,7 @@ class RegisteredUserController extends Controller
             }
         } else {
             $this->createOwnedTeam($user, [
-                'account_type' => (string) $request->input('account_type', 'individual'),
+                'account_type' => $accountType,
                 'trading_name' => (string) $request->input('trading_name', ''),
                 'business_name' => (string) $request->input('business_name', ''),
             ]);

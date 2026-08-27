@@ -36,6 +36,7 @@ class CreateNewUser implements CreatesNewUsers
             return tap(User::create([
                 'name' => $input['name'],
                 'email' => $input['email'],
+                'account_type' => (string) ($input['account_type'] ?? 'individual'),
                 'country' => strtoupper((string) $input['country']),
                 'password' => Hash::make($input['password']),
             ]), function (User $user) use ($input) {

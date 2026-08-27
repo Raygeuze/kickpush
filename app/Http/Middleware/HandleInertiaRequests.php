@@ -41,6 +41,8 @@ class HandleInertiaRequests extends Middleware
     {
         $user = $request->user();
         $currentTeam = $user ? $user->currentTeam : null;
+        $currentTeamRole = ($user && $currentTeam) ? $user->teamRole($currentTeam) : null;
+        $isCurrentTeamEmployee = $currentTeamRole ? ((string) $currentTeamRole->key === 'employee') : false;
         $currentTeamId = $currentTeam ? (int) $currentTeam->id : null;
         $allTeams = $user ? $user->allTeams()->map(fn ($team) => [
             'id' => (int) $team->id,
@@ -84,6 +86,9 @@ class HandleInertiaRequests extends Middleware
                             'id' => (int) $currentTeam->id,
                             'name' => (string) $currentTeam->name,
                             'personal_team' => (bool) $currentTeam->personal_team,
+                            'role' => $currentTeamRole ? (string) $currentTeamRole->key : null,
+                            'is_employee' => $isCurrentTeamEmployee,
+                            'can_manage_non_timer_records' => ! $isCurrentTeamEmployee,
                             'is_owner' => $user->ownsTeam($currentTeam),
                             'can_manage_settings' => Gate::forUser($user)->check('update', $currentTeam),
                             'can_transfer_ownership' => $user->ownsTeam($currentTeam),

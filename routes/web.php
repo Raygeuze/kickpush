@@ -18,7 +18,7 @@ Route::get('/', function () {
     ]);
 })->name('dashboard');
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
     Route::post('/teams/{team}/ownership/{user}', 'App\\Http\\Controllers\\TeamOwnershipController@transfer')
         ->name('teams.transferOwnership');
     Route::put('/teams/{team}/additional-taxes', [TeamAdditionalTaxController::class, 'update'])

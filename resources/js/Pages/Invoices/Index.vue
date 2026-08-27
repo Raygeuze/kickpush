@@ -1,7 +1,10 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+
+const page = usePage();
+const canManageNonTimerRecords = computed(() => page.props.auth?.user?.current_team?.can_manage_non_timer_records !== false);
 
 const props = defineProps({
     clients: {
@@ -139,6 +142,10 @@ function isDeletingInvoice(invoiceId) {
 }
 
 async function markPaid(invoiceId) {
+    if (!canManageNonTimerRecords.value) {
+        return;
+    }
+
     if (isMarkingPaid(invoiceId)) {
         return;
     }
@@ -167,6 +174,10 @@ async function markPaid(invoiceId) {
 }
 
 async function deleteInvoice(invoiceId) {
+    if (!canManageNonTimerRecords.value) {
+        return;
+    }
+
     if (isDeletingInvoice(invoiceId)) {
         return;
     }
@@ -265,6 +276,10 @@ async function deleteInvoice(invoiceId) {
                     </div>
                     <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">Financial year: {{ selectedFinancialYearLabel }}</p>
 
+                    <p v-if="!canManageNonTimerRecords" class="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                        Your role is view-only for invoices outside timer session actions.
+                    </p>
+
                     <div class="mt-4">
                         <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Client Year Snapshot</h3>
 
@@ -339,7 +354,7 @@ async function deleteInvoice(invoiceId) {
                                         </span>
 
                                         <button
-                                            v-if="!invoice.is_finalized"
+                                            v-if="canManageNonTimerRecords && !invoice.is_finalized"
                                             type="button"
                                             class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-60"
                                             :disabled="isDeletingInvoice(invoice.id)"
@@ -359,7 +374,7 @@ async function deleteInvoice(invoiceId) {
                                     </div>
 
                                     <button
-                                        v-if="invoice.status === 'finalized'"
+                                        v-if="canManageNonTimerRecords && invoice.status === 'finalized'"
                                         type="button"
                                         class="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 transition disabled:opacity-60"
                                         :disabled="isMarkingPaid(invoice.id) || isDeletingInvoice(invoice.id)"
