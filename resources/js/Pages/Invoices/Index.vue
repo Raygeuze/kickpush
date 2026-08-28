@@ -77,6 +77,102 @@ const financialYearOptions = computed(() => {
     }));
 });
 
+const snapshotSummaries = computed(() => {
+    const summaries = props.clientYearSummaries || [];
+
+    if (summaries.length === 0) {
+        return [];
+    }
+
+    if (props.selectedClientId) {
+        return summaries.map((summary) => ({
+            ...summary,
+            paid: {
+                ...summary.paid,
+                clients: Number(summary.paid?.invoice_count || 0) > 0
+                    ? [{ client_name: summary.client_name, invoice_count: Number(summary.paid?.invoice_count || 0) }]
+                    : [],
+            },
+            sent_not_paid: {
+                ...summary.sent_not_paid,
+                clients: Number(summary.sent_not_paid?.invoice_count || 0) > 0
+                    ? [{ client_name: summary.client_name, invoice_count: Number(summary.sent_not_paid?.invoice_count || 0) }]
+                    : [],
+            },
+            draft: {
+                ...summary.draft,
+                clients: Number(summary.draft?.invoice_count || 0) > 0
+                    ? [{ client_name: summary.client_name, invoice_count: Number(summary.draft?.invoice_count || 0) }]
+                    : [],
+            },
+            overdue: {
+                ...summary.overdue,
+                clients: Number(summary.overdue?.invoice_count || 0) > 0
+                    ? [{ client_name: summary.client_name, invoice_count: Number(summary.overdue?.invoice_count || 0) }]
+                    : [],
+            },
+        }));
+    }
+
+    const totals = summaries.reduce((accumulator, summary) => {
+        const clientName = String(summary.client_name || 'Unassigned Client');
+        const paidCount = Number(summary.paid?.invoice_count || 0);
+        const sentCount = Number(summary.sent_not_paid?.invoice_count || 0);
+        const draftCount = Number(summary.draft?.invoice_count || 0);
+        const overdueCount = Number(summary.overdue?.invoice_count || 0);
+
+        accumulator.paid.invoice_count += paidCount;
+        accumulator.sent_not_paid.invoice_count += sentCount;
+        accumulator.draft.invoice_count += draftCount;
+        accumulator.overdue.invoice_count += overdueCount;
+
+        if (paidCount > 0) {
+            accumulator.paid.clientsMap[clientName] = (accumulator.paid.clientsMap[clientName] || 0) + paidCount;
+        }
+
+        if (sentCount > 0) {
+            accumulator.sent_not_paid.clientsMap[clientName] = (accumulator.sent_not_paid.clientsMap[clientName] || 0) + sentCount;
+        }
+
+        if (draftCount > 0) {
+            accumulator.draft.clientsMap[clientName] = (accumulator.draft.clientsMap[clientName] || 0) + draftCount;
+        }
+
+        if (overdueCount > 0) {
+            accumulator.overdue.clientsMap[clientName] = (accumulator.overdue.clientsMap[clientName] || 0) + overdueCount;
+        }
+
+        return accumulator;
+    }, {
+        client_id: 'all-clients',
+        client_name: 'All Clients',
+        paid: { invoice_count: 0, clientsMap: {} },
+        sent_not_paid: { invoice_count: 0, clientsMap: {} },
+        draft: { invoice_count: 0, clientsMap: {} },
+        overdue: { invoice_count: 0, clientsMap: {} },
+    });
+
+    totals.paid.clients = Object.entries(totals.paid.clientsMap)
+        .map(([client_name, invoice_count]) => ({ client_name, invoice_count }))
+        .sort((left, right) => left.client_name.localeCompare(right.client_name));
+    totals.sent_not_paid.clients = Object.entries(totals.sent_not_paid.clientsMap)
+        .map(([client_name, invoice_count]) => ({ client_name, invoice_count }))
+        .sort((left, right) => left.client_name.localeCompare(right.client_name));
+    totals.draft.clients = Object.entries(totals.draft.clientsMap)
+        .map(([client_name, invoice_count]) => ({ client_name, invoice_count }))
+        .sort((left, right) => left.client_name.localeCompare(right.client_name));
+    totals.overdue.clients = Object.entries(totals.overdue.clientsMap)
+        .map(([client_name, invoice_count]) => ({ client_name, invoice_count }))
+        .sort((left, right) => left.client_name.localeCompare(right.client_name));
+
+    delete totals.paid.clientsMap;
+    delete totals.sent_not_paid.clientsMap;
+    delete totals.draft.clientsMap;
+    delete totals.overdue.clientsMap;
+
+    return [totals];
+});
+
 const selectedClientName = computed(() => {
     if (!selectedClientId.value) {
         return 'All clients';
@@ -113,24 +209,6 @@ function formatDate(value) {
     }
 
     return new Date(value).toLocaleDateString();
-}
-
-function formatCurrency(amount, currencyCode = 'USD') {
-    const value = Number(amount || 0);
-    const code = /^[A-Z]{3}$/.test(String(currencyCode || '').toUpperCase())
-        ? String(currencyCode || 'USD').toUpperCase()
-        : 'USD';
-
-    try {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: code,
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        }).format(value);
-    } catch {
-        return `${code} ${value.toFixed(2)}`;
-    }
 }
 
 function isMarkingPaid(invoiceId) {
@@ -283,41 +361,76 @@ async function deleteInvoice(invoiceId) {
                     <div class="mt-4">
                         <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Client Year Snapshot</h3>
 
-                        <p v-if="clientYearSummaries.length === 0" class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                        <p v-if="snapshotSummaries.length === 0" class="mt-2 text-sm text-gray-600 dark:text-gray-300">
                             No client summaries available for this financial year filter.
                         </p>
 
                         <div v-else class="mt-3 grid grid-cols-1 gap-3">
                             <div
-                                v-for="summary in clientYearSummaries"
+                                v-for="summary in snapshotSummaries"
                                 :key="`client-year-summary-${summary.client_id ?? 'unassigned'}`"
                                 class="rounded-xl border border-gray-200 dark:border-gray-700 p-4"
                             >
                                 <div class="flex items-center justify-between gap-2">
                                     <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ summary.client_name }}</p>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ String(summary.currency || 'USD').toUpperCase() }}</p>
                                 </div>
 
                                 <div class="mt-3 grid grid-cols-1 lg:grid-cols-4 gap-2 text-xs">
                                     <div class="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 p-2">
                                         <p class="font-semibold text-emerald-700 dark:text-emerald-300">Paid</p>
                                         <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.paid?.invoice_count || 0) }} invoices</p>
-                                        <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.paid?.billable_time_amount || 0, summary.currency) }}</p>
+                                        <p v-if="!(summary.paid?.clients || []).length" class="mt-1 text-gray-600 dark:text-gray-300">No client invoices</p>
+                                        <div v-else class="mt-1 space-y-0.5">
+                                            <p
+                                                v-for="clientBreakdown in summary.paid.clients"
+                                                :key="`paid-${summary.client_id}-${clientBreakdown.client_name}`"
+                                                class="text-gray-600 dark:text-gray-300"
+                                            >
+                                                {{ clientBreakdown.client_name }}: {{ Number(clientBreakdown.invoice_count || 0) }}
+                                            </p>
+                                        </div>
                                     </div>
                                     <div class="rounded-lg bg-cyan-50 dark:bg-cyan-900/20 p-2">
                                         <p class="font-semibold text-cyan-700 dark:text-cyan-300">Sent</p>
                                         <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.sent_not_paid?.invoice_count || 0) }} invoices</p>
-                                        <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.sent_not_paid?.billable_time_amount || 0, summary.currency) }}</p>
+                                        <p v-if="!(summary.sent_not_paid?.clients || []).length" class="mt-1 text-gray-600 dark:text-gray-300">No client invoices</p>
+                                        <div v-else class="mt-1 space-y-0.5">
+                                            <p
+                                                v-for="clientBreakdown in summary.sent_not_paid.clients"
+                                                :key="`sent-${summary.client_id}-${clientBreakdown.client_name}`"
+                                                class="text-gray-600 dark:text-gray-300"
+                                            >
+                                                {{ clientBreakdown.client_name }}: {{ Number(clientBreakdown.invoice_count || 0) }}
+                                            </p>
+                                        </div>
                                     </div>
                                     <div class="rounded-lg bg-indigo-50 dark:bg-indigo-900/20 p-2">
                                         <p class="font-semibold text-indigo-700 dark:text-indigo-300">In Progress</p>
                                         <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.draft?.invoice_count || 0) }} invoices</p>
-                                        <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.draft?.billable_time_amount || 0, summary.currency) }}</p>
+                                        <p v-if="!(summary.draft?.clients || []).length" class="mt-1 text-gray-600 dark:text-gray-300">No client invoices</p>
+                                        <div v-else class="mt-1 space-y-0.5">
+                                            <p
+                                                v-for="clientBreakdown in summary.draft.clients"
+                                                :key="`draft-${summary.client_id}-${clientBreakdown.client_name}`"
+                                                class="text-gray-600 dark:text-gray-300"
+                                            >
+                                                {{ clientBreakdown.client_name }}: {{ Number(clientBreakdown.invoice_count || 0) }}
+                                            </p>
+                                        </div>
                                     </div>
                                     <div class="rounded-lg bg-rose-50 dark:bg-rose-900/20 p-2">
                                         <p class="font-semibold text-rose-700 dark:text-rose-300">Overdue</p>
                                         <p class="text-gray-700 dark:text-gray-200">{{ Number(summary.overdue?.invoice_count || 0) }} invoices</p>
-                                        <p class="font-semibold text-gray-900 dark:text-white">{{ formatCurrency(summary.overdue?.billable_time_amount || 0, summary.currency) }}</p>
+                                        <p v-if="!(summary.overdue?.clients || []).length" class="mt-1 text-gray-600 dark:text-gray-300">No client invoices</p>
+                                        <div v-else class="mt-1 space-y-0.5">
+                                            <p
+                                                v-for="clientBreakdown in summary.overdue.clients"
+                                                :key="`overdue-${summary.client_id}-${clientBreakdown.client_name}`"
+                                                class="text-gray-600 dark:text-gray-300"
+                                            >
+                                                {{ clientBreakdown.client_name }}: {{ Number(clientBreakdown.invoice_count || 0) }}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
