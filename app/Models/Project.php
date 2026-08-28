@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\ProjectNote;
 use App\Models\Task;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -39,5 +40,12 @@ class Project extends Model
     {
         return $this->hasMany(Task::class)
             ->orderBy('name');
+    }
+
+    public function notes(): HasMany
+    {
+        return $this->hasMany(ProjectNote::class)
+            ->latest('created_at')
+            ->latest('id');
     }
 }

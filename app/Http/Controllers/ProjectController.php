@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\Project;
+use App\Models\ProjectNote;
 use App\Models\TimerSession;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,7 +34,11 @@ class ProjectController extends Controller
 
         $selectedUserId = isset($validated['user_id']) ? (int) $validated['user_id'] : null;
 
-        $project = $this->findProjectForActorOrFail($projectId)->load('client:id,name,currency,hourly_rate');
+        $project = $this->findProjectForActorOrFail($projectId)->load([
+            'client:id,name,currency,hourly_rate',
+            'notes.user:id,name',
+        ]);
+        $projectNotes = $project->notes->map(fn (ProjectNote $note): array => $this->formatProjectNote($note))->values();
         $tasks = $project->tasks()->get(['id', 'project_id', 'name', 'description', 'is_active', 'is_default']);
         $taskIds = $tasks->pluck('id')->all();
         $hourlyRate = $project->client ? (float) ($project->client->hourly_rate ?? 0) : 0.0;
@@ -69,6 +74,7 @@ class ProjectController extends Controller
                 ],
                 'taskSummaries' => [],
                 'recentSessions' => [],
+                'projectNotes' => $projectNotes,
                 'workers' => [],
                 'selectedWorkerId' => $selectedUserId,
             ]);
@@ -129,6 +135,7 @@ class ProjectController extends Controller
                 ],
                 'taskSummaries' => [],
                 'recentSessions' => [],
+                'projectNotes' => $projectNotes,
                 'workers' => $workers,
                 'selectedWorkerId' => $selectedUserId,
             ]);
@@ -324,8 +331,88 @@ class ProjectController extends Controller
             ],
             'taskSummaries' => $taskSummaries,
             'recentSessions' => $recentSessions,
+            'projectNotes' => $projectNotes,
             'workers' => $workers,
             'selectedWorkerId' => $selectedUserId,
+        ]);
+    }
+
+    public function storeNote(Request $request, int $projectId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $teamId = $this->currentTeamIdOrFail();
+        $project = $this->findProjectForActorOrFail($projectId);
+
+        $validated = $request->validate([
+            'body' => 'required|string|max:5000',
+        ]);
+
+        $body = trim((string) $validated['body']);
+
+        if ($body === '') {
+            return response()->json([
+                'message' => 'Note cannot be empty.',
+            ], 422);
+        }
+
+        $note = ProjectNote::create([
+            'team_id' => $teamId,
+            'project_id' => $project->id,
+            'user_id' => (int) Auth::id(),
+            'body' => $body,
+        ])->load('user:id,name');
+
+        return response()->json([
+            'message' => 'Project note added.',
+            'note' => $this->formatProjectNote($note),
+        ], 201);
+    }
+
+    public function updateNote(Request $request, int $projectId, int $noteId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $project = $this->findProjectForActorOrFail($projectId);
+        $note = $this->findProjectNoteForActorOrFail($project, $noteId);
+
+        abort_unless($this->canManageProjectNote($note), 403, 'You can only modify notes you created.');
+
+        $validated = $request->validate([
+            'body' => 'required|string|max:5000',
+        ]);
+
+        $body = trim((string) $validated['body']);
+
+        if ($body === '') {
+            return response()->json([
+                'message' => 'Note cannot be empty.',
+            ], 422);
+        }
+
+        $note->body = $body;
+        $note->save();
+
+        return response()->json([
+            'message' => 'Project note updated.',
+            'note' => $this->formatProjectNote($note->fresh()->load('user:id,name')),
+        ]);
+    }
+
+    public function destroyNote(int $projectId, int $noteId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $project = $this->findProjectForActorOrFail($projectId);
+        $note = $this->findProjectNoteForActorOrFail($project, $noteId);
+
+        abort_unless($this->canManageProjectNote($note), 403, 'You can only remove notes you created.');
+
+        $note->delete();
+
+        return response()->json([
+            'message' => 'Project note removed.',
+            'note_id' => $noteId,
         ]);
     }
 
@@ -511,5 +598,52 @@ class ProjectController extends Controller
         abort_unless($client !== null, 403, 'Client does not belong to this user.');
 
         return $client;
+    }
+
+    private function findProjectNoteForActorOrFail(Project $project, int $noteId): ProjectNote
+    {
+        $teamId = $this->currentTeamIdOrFail();
+
+        $note = ProjectNote::query()
+            ->where('team_id', $teamId)
+            ->where('project_id', $project->id)
+            ->whereKey($noteId)
+            ->first();
+
+        abort_unless($note !== null, 404, 'Project note not found.');
+
+        return $note;
+    }
+
+    private function canManageProjectNote(ProjectNote $note): bool
+    {
+        $user = Auth::user();
+
+        if (! $user) {
+            return false;
+        }
+
+        return (int) $note->user_id === (int) $user->id;
+    }
+
+    private function formatProjectNote(ProjectNote $note): array
+    {
+        $actor = Auth::user();
+        $actorId = $actor ? (int) $actor->id : null;
+        $canManage = $this->canManageProjectNote($note);
+
+        return [
+            'id' => (int) $note->id,
+            'project_id' => (int) $note->project_id,
+            'team_id' => (int) $note->team_id,
+            'user_id' => (int) $note->user_id,
+            'user_name' => $note->user ? (string) $note->user->name : 'Unknown user',
+            'body' => (string) $note->body,
+            'created_at' => $note->created_at ? $note->created_at->toIso8601String() : null,
+            'updated_at' => $note->updated_at ? $note->updated_at->toIso8601String() : null,
+            'is_authored_by_current_user' => $actorId !== null && (int) $note->user_id === $actorId,
+            'can_edit' => $canManage,
+            'can_delete' => $canManage,
+        ];
     }
 }

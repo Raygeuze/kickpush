@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
@@ -28,12 +28,31 @@ const props = defineProps({
         type: [Number, String, null],
         default: null,
     },
+    projectNotes: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const selectedWorkerId = ref(
     props.selectedWorkerId === null || props.selectedWorkerId === undefined
         ? ''
         : String(props.selectedWorkerId)
+);
+const projectNotesList = ref([...(props.projectNotes || [])]);
+const noteBody = ref('');
+const isSavingNote = ref(false);
+const noteError = ref('');
+const editingNoteId = ref(null);
+const editingNoteBody = ref('');
+const isUpdatingNoteId = ref(null);
+const deletingNoteIds = ref([]);
+
+watch(
+    () => props.projectNotes,
+    (nextProjectNotes) => {
+        projectNotesList.value = [...(nextProjectNotes || [])];
+    }
 );
 
 const assignmentRate = computed(() => {
@@ -103,6 +122,111 @@ function applyWorkerFilter() {
         preserveState: true,
         preserveScroll: true,
     });
+}
+
+async function submitProjectNote() {
+    if (isSavingNote.value) {
+        return;
+    }
+
+    const body = String(noteBody.value || '').trim();
+
+    if (!body) {
+        noteError.value = 'Enter a note before posting.';
+        return;
+    }
+
+    noteError.value = '';
+    isSavingNote.value = true;
+
+    try {
+        const response = await axios.post(`/projects/${props.project.id}/notes`, {
+            body,
+        });
+
+        if (response?.data?.note) {
+            projectNotesList.value = [response.data.note, ...projectNotesList.value];
+            noteBody.value = '';
+        }
+    } catch (error) {
+        noteError.value = error?.response?.data?.message || 'Unable to add note right now.';
+    } finally {
+        isSavingNote.value = false;
+    }
+}
+
+function startEditingNote(note) {
+    editingNoteId.value = note.id;
+    editingNoteBody.value = String(note.body || '');
+    noteError.value = '';
+}
+
+function cancelEditingNote() {
+    editingNoteId.value = null;
+    editingNoteBody.value = '';
+}
+
+function isDeletingNote(noteId) {
+    return deletingNoteIds.value.includes(noteId);
+}
+
+async function saveEditedNote(note) {
+    if (isUpdatingNoteId.value !== null) {
+        return;
+    }
+
+    const body = String(editingNoteBody.value || '').trim();
+
+    if (!body) {
+        noteError.value = 'Enter a note before saving.';
+        return;
+    }
+
+    noteError.value = '';
+    isUpdatingNoteId.value = note.id;
+
+    try {
+        const response = await axios.put(`/projects/${props.project.id}/notes/${note.id}`, {
+            body,
+        });
+        const updated = response?.data?.note;
+
+        if (updated) {
+            projectNotesList.value = projectNotesList.value.map((entry) => (entry.id === updated.id ? updated : entry));
+        }
+
+        cancelEditingNote();
+    } catch (error) {
+        noteError.value = error?.response?.data?.message || 'Unable to save this note right now.';
+    } finally {
+        isUpdatingNoteId.value = null;
+    }
+}
+
+async function deleteProjectNote(note) {
+    if (isDeletingNote(note.id)) {
+        return;
+    }
+
+    if (!window.confirm('Delete this note?')) {
+        return;
+    }
+
+    deletingNoteIds.value.push(note.id);
+    noteError.value = '';
+
+    try {
+        await axios.delete(`/projects/${props.project.id}/notes/${note.id}`);
+        projectNotesList.value = projectNotesList.value.filter((entry) => entry.id !== note.id);
+
+        if (editingNoteId.value === note.id) {
+            cancelEditingNote();
+        }
+    } catch (error) {
+        noteError.value = error?.response?.data?.message || 'Unable to delete this note right now.';
+    } finally {
+        deletingNoteIds.value = deletingNoteIds.value.filter((noteId) => noteId !== note.id);
+    }
 }
 </script>
 
@@ -218,6 +342,98 @@ function applyWorkerFilter() {
                                     <span class="tabular-nums">{{ summary.project_overdue_invoice_count }}</span>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rounded-2xl bg-white dark:bg-gray-900 shadow-lg p-6 sm:p-8">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Project Notes</h2>
+                        <p class="text-sm text-gray-600 dark:text-gray-300">{{ projectNotesList.length }} note(s)</p>
+                    </div>
+
+                    <div class="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Add Note</label>
+                        <textarea
+                            v-model="noteBody"
+                            rows="3"
+                            class="mt-2 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                            placeholder="Write a project update, decision, or context note..."
+                        />
+                        <div class="mt-3 flex justify-end">
+                            <button
+                                type="button"
+                                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition disabled:opacity-60"
+                                :disabled="isSavingNote"
+                                @click="submitProjectNote"
+                            >
+                                {{ isSavingNote ? 'Posting...' : 'Post Note' }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <p v-if="noteError" class="mt-3 text-sm text-red-700 dark:text-red-300">{{ noteError }}</p>
+
+                    <p v-if="projectNotesList.length === 0" class="mt-4 text-sm text-gray-600 dark:text-gray-300">
+                        No project notes yet.
+                    </p>
+
+                    <div v-else class="mt-4 space-y-3">
+                        <div
+                            v-for="note in projectNotesList"
+                            :key="note.id"
+                            class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 p-4"
+                        >
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ note.user_name }}</p>
+                                <div class="flex items-center gap-3">
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ formatDateTime(note.created_at) }}</p>
+                                    <button
+                                        v-if="note.can_edit"
+                                        type="button"
+                                        class="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                                        @click="startEditingNote(note)"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        v-if="note.can_delete"
+                                        type="button"
+                                        class="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline disabled:opacity-60"
+                                        :disabled="isDeletingNote(note.id)"
+                                        @click="deleteProjectNote(note)"
+                                    >
+                                        {{ isDeletingNote(note.id) ? 'Deleting...' : 'Delete' }}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div v-if="editingNoteId === note.id" class="mt-2">
+                                <textarea
+                                    v-model="editingNoteBody"
+                                    rows="3"
+                                    class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                />
+                                <div class="mt-2 flex items-center justify-end gap-2">
+                                    <button
+                                        type="button"
+                                        class="rounded-lg bg-gray-200 dark:bg-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+                                        @click="cancelEditingNote"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition disabled:opacity-60"
+                                        :disabled="isUpdatingNoteId === note.id"
+                                        @click="saveEditedNote(note)"
+                                    >
+                                        {{ isUpdatingNoteId === note.id ? 'Saving...' : 'Save' }}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <p v-else class="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200">{{ note.body }}</p>
                         </div>
                     </div>
                 </div>

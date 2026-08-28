@@ -36,6 +36,9 @@ Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
 
     Route::get('/projects/list', [ProjectController::class, 'list'])->name('projects.list');
     Route::get('/projects/{projectId}', [ProjectController::class, 'show'])->name('projects.show');
+    Route::post('/projects/{projectId}/notes', [ProjectController::class, 'storeNote'])->name('projects.notes.store');
+    Route::put('/projects/{projectId}/notes/{noteId}', [ProjectController::class, 'updateNote'])->name('projects.notes.update');
+    Route::delete('/projects/{projectId}/notes/{noteId}', [ProjectController::class, 'destroyNote'])->name('projects.notes.destroy');
     Route::post('/projects/create', [ProjectController::class, 'create'])->name('projects.create');
     Route::put('/projects/{projectId}', [ProjectController::class, 'update'])->name('projects.update');
     Route::delete('/projects/{projectId}', [ProjectController::class, 'destroy'])->name('projects.destroy');

@@ -34,6 +34,7 @@ class EnforceEmployeeTeamPermissions
             'timer.',
             'invoices.timer.',
             'invoices.sessions.',
+            'projects.notes.',
         ];
 
         foreach ($employeeWriteAllowedPrefixes as $prefix) {
