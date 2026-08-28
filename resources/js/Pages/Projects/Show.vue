@@ -47,6 +47,7 @@ const editingNoteId = ref(null);
 const editingNoteBody = ref('');
 const isUpdatingNoteId = ref(null);
 const deletingNoteIds = ref([]);
+const expandedNoteIds = ref([]);
 
 watch(
     () => props.projectNotes,
@@ -168,6 +169,35 @@ function cancelEditingNote() {
 
 function isDeletingNote(noteId) {
     return deletingNoteIds.value.includes(noteId);
+}
+
+function isLongNote(note) {
+    const body = String(note?.body || '');
+
+    return body.length > 280;
+}
+
+function isNoteExpanded(noteId) {
+    return expandedNoteIds.value.includes(noteId);
+}
+
+function toggleNoteExpanded(noteId) {
+    if (isNoteExpanded(noteId)) {
+        expandedNoteIds.value = expandedNoteIds.value.filter((id) => id !== noteId);
+        return;
+    }
+
+    expandedNoteIds.value = [...expandedNoteIds.value, noteId];
+}
+
+function previewNoteBody(note) {
+    const body = String(note?.body || '');
+
+    if (!isLongNote(note) || isNoteExpanded(note.id)) {
+        return body;
+    }
+
+    return `${body.slice(0, 280)}...`;
 }
 
 async function saveEditedNote(note) {
@@ -352,26 +382,6 @@ async function deleteProjectNote(note) {
                         <p class="text-sm text-gray-600 dark:text-gray-300">{{ projectNotesList.length }} note(s)</p>
                     </div>
 
-                    <div class="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Add Note</label>
-                        <textarea
-                            v-model="noteBody"
-                            rows="3"
-                            class="mt-2 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                            placeholder="Write a project update, decision, or context note..."
-                        />
-                        <div class="mt-3 flex justify-end">
-                            <button
-                                type="button"
-                                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition disabled:opacity-60"
-                                :disabled="isSavingNote"
-                                @click="submitProjectNote"
-                            >
-                                {{ isSavingNote ? 'Posting...' : 'Post Note' }}
-                            </button>
-                        </div>
-                    </div>
-
                     <p v-if="noteError" class="mt-3 text-sm text-red-700 dark:text-red-300">{{ noteError }}</p>
 
                     <p v-if="projectNotesList.length === 0" class="mt-4 text-sm text-gray-600 dark:text-gray-300">
@@ -433,7 +443,37 @@ async function deleteProjectNote(note) {
                                 </div>
                             </div>
 
-                            <p v-else class="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200">{{ note.body }}</p>
+                            <div v-else class="mt-2">
+                                <p class="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200">{{ previewNoteBody(note) }}</p>
+                                <button
+                                    v-if="isLongNote(note)"
+                                    type="button"
+                                    class="mt-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                                    @click="toggleNoteExpanded(note.id)"
+                                >
+                                    {{ isNoteExpanded(note.id) ? 'Show less' : 'Show more' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Add Note</label>
+                        <textarea
+                            v-model="noteBody"
+                            rows="3"
+                            class="mt-2 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                            placeholder="Write a project update, decision, or context note..."
+                        />
+                        <div class="mt-3 flex justify-end">
+                            <button
+                                type="button"
+                                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition disabled:opacity-60"
+                                :disabled="isSavingNote"
+                                @click="submitProjectNote"
+                            >
+                                {{ isSavingNote ? 'Posting...' : 'Post Note' }}
+                            </button>
                         </div>
                     </div>
                 </div>
