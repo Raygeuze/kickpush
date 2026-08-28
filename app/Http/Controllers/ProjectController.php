@@ -34,11 +34,10 @@ class ProjectController extends Controller
 
         $selectedUserId = isset($validated['user_id']) ? (int) $validated['user_id'] : null;
 
-        $project = $this->findProjectForActorOrFail($projectId)->load([
-            'client:id,name,currency,hourly_rate',
-            'notes.user:id,name',
-        ]);
-        $projectNotes = $project->notes->map(fn (ProjectNote $note): array => $this->formatProjectNote($note))->values();
+        $project = $this->findProjectForActorOrFail($projectId)->load('client:id,name,currency,hourly_rate');
+        $projectNotes = $this->projectNotesForActor($project)
+            ->map(fn (ProjectNote $note): array => $this->formatProjectNote($note))
+            ->values();
         $tasks = $project->tasks()->get(['id', 'project_id', 'name', 'description', 'is_active', 'is_default']);
         $taskIds = $tasks->pluck('id')->all();
         $hourlyRate = $project->client ? (float) ($project->client->hourly_rate ?? 0) : 0.0;
@@ -346,9 +345,11 @@ class ProjectController extends Controller
 
         $validated = $request->validate([
             'body' => 'required|string|max:5000',
+            'visibility' => 'nullable|in:team,private',
         ]);
 
         $body = trim((string) $validated['body']);
+        $visibility = isset($validated['visibility']) ? (string) $validated['visibility'] : 'team';
 
         if ($body === '') {
             return response()->json([
@@ -360,6 +361,7 @@ class ProjectController extends Controller
             'team_id' => $teamId,
             'project_id' => $project->id,
             'user_id' => (int) Auth::id(),
+            'visibility' => $visibility,
             'body' => $body,
         ])->load('user:id,name');
 
@@ -612,7 +614,44 @@ class ProjectController extends Controller
 
         abort_unless($note !== null, 404, 'Project note not found.');
 
+        abort_unless($this->canViewProjectNote($note), 404, 'Project note not found.');
+
         return $note;
+    }
+
+    private function projectNotesForActor(Project $project)
+    {
+        $actorId = (int) Auth::id();
+
+        return ProjectNote::query()
+            ->where('team_id', $project->team_id)
+            ->where('project_id', $project->id)
+            ->where(function ($query) use ($actorId): void {
+                $query->where('visibility', 'team')
+                    ->orWhere(function ($innerQuery) use ($actorId): void {
+                        $innerQuery->where('visibility', 'private')
+                            ->where('user_id', $actorId);
+                    });
+            })
+            ->with('user:id,name')
+            ->latest('created_at')
+            ->latest('id')
+            ->get();
+    }
+
+    private function canViewProjectNote(ProjectNote $note): bool
+    {
+        $user = Auth::user();
+
+        if (! $user) {
+            return false;
+        }
+
+        if ((string) $note->visibility === 'private') {
+            return (int) $note->user_id === (int) $user->id;
+        }
+
+        return true;
     }
 
     private function canManageProjectNote(ProjectNote $note): bool
@@ -638,6 +677,8 @@ class ProjectController extends Controller
             'team_id' => (int) $note->team_id,
             'user_id' => (int) $note->user_id,
             'user_name' => $note->user ? (string) $note->user->name : 'Unknown user',
+            'visibility' => (string) ($note->visibility ?: 'team'),
+            'is_private' => (string) ($note->visibility ?: 'team') === 'private',
             'body' => (string) $note->body,
             'created_at' => $note->created_at ? $note->created_at->toIso8601String() : null,
             'updated_at' => $note->updated_at ? $note->updated_at->toIso8601String() : null,

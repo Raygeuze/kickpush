@@ -11,6 +11,7 @@ class ProjectNote extends Model
         'team_id',
         'project_id',
         'user_id',
+        'visibility',
         'body',
     ];
 

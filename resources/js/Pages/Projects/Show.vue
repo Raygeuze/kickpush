@@ -48,13 +48,29 @@ const editingNoteBody = ref('');
 const isUpdatingNoteId = ref(null);
 const deletingNoteIds = ref([]);
 const expandedNoteIds = ref([]);
+const activeNotesTab = ref('team');
 
 watch(
     () => props.projectNotes,
     (nextProjectNotes) => {
         projectNotesList.value = [...(nextProjectNotes || [])];
+
+        if (activeNotesTab.value === 'private' && privateNotesCount.value === 0) {
+            activeNotesTab.value = 'team';
+        }
     }
 );
+
+const teamNotesCount = computed(() => projectNotesList.value.filter((note) => note.visibility !== 'private').length);
+const privateNotesCount = computed(() => projectNotesList.value.filter((note) => note.visibility === 'private').length);
+const visibleNotes = computed(() => {
+    if (activeNotesTab.value === 'private') {
+        return projectNotesList.value.filter((note) => note.visibility === 'private');
+    }
+
+    return projectNotesList.value.filter((note) => note.visibility !== 'private');
+});
+const activeTabLabel = computed(() => (activeNotesTab.value === 'private' ? 'My Private Notes' : 'Team Notes'));
 
 const assignmentRate = computed(() => {
     const total = Number(props?.summary?.sessions_count || 0);
@@ -143,6 +159,7 @@ async function submitProjectNote() {
     try {
         const response = await axios.post(`/projects/${props.project.id}/notes`, {
             body,
+            visibility: activeNotesTab.value,
         });
 
         if (response?.data?.note) {
@@ -382,26 +399,61 @@ async function deleteProjectNote(note) {
                         <p class="text-sm text-gray-600 dark:text-gray-300">{{ projectNotesList.length }} note(s)</p>
                     </div>
 
+                    <div class="mt-4 flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            class="rounded-lg px-3 py-1.5 text-xs font-semibold transition"
+                            :class="activeNotesTab === 'team' ? 'bg-cyan-600 text-white shadow-sm' : 'bg-cyan-50 text-cyan-800 hover:bg-cyan-100 dark:bg-cyan-900/30 dark:text-cyan-200 dark:hover:bg-cyan-900/50'"
+                            @click="activeNotesTab = 'team'"
+                        >
+                            Team Notes ({{ teamNotesCount }})
+                        </button>
+                        <button
+                            type="button"
+                            class="rounded-lg px-3 py-1.5 text-xs font-semibold transition"
+                            :class="activeNotesTab === 'private' ? 'bg-amber-600 text-white shadow-sm' : 'bg-amber-50 text-amber-800 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50'"
+                            @click="activeNotesTab = 'private'"
+                        >
+                            My Private Notes ({{ privateNotesCount }})
+                        </button>
+                    </div>
+
+                    <p v-if="activeNotesTab === 'private'" class="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                        Only visible to you.
+                    </p>
+
                     <p v-if="noteError" class="mt-3 text-sm text-red-700 dark:text-red-300">{{ noteError }}</p>
 
-                    <p v-if="projectNotesList.length === 0" class="mt-4 text-sm text-gray-600 dark:text-gray-300">
-                        No project notes yet.
+                    <p v-if="visibleNotes.length === 0" class="mt-4 text-sm text-gray-600 dark:text-gray-300">
+                        No {{ activeTabLabel.toLowerCase() }} yet.
                     </p>
 
                     <div v-else class="mt-4 space-y-3">
                         <div
-                            v-for="note in projectNotesList"
+                            v-for="note in visibleNotes"
                             :key="note.id"
-                            class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 p-4"
+                            class="rounded-xl border p-4"
+                            :class="note.visibility === 'private'
+                                ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20'
+                                : 'border-cyan-200 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-900/20'"
                         >
                             <div class="flex flex-wrap items-center justify-between gap-2">
-                                <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ note.user_name }}</p>
+                                <div class="flex items-center gap-2">
+                                    <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ note.user_name }}</p>
+                                    <span
+                                        v-if="note.visibility === 'private'"
+                                        class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                                    >
+                                        Private
+                                    </span>
+                                </div>
                                 <div class="flex items-center gap-3">
                                     <p class="text-xs text-gray-500 dark:text-gray-400">{{ formatDateTime(note.created_at) }}</p>
                                     <button
                                         v-if="note.can_edit"
                                         type="button"
-                                        class="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                                        class="text-xs font-semibold hover:underline"
+                                        :class="note.visibility === 'private' ? 'text-amber-700 dark:text-amber-300' : 'text-cyan-700 dark:text-cyan-300'"
                                         @click="startEditingNote(note)"
                                     >
                                         Edit
@@ -448,7 +500,8 @@ async function deleteProjectNote(note) {
                                 <button
                                     v-if="isLongNote(note)"
                                     type="button"
-                                    class="mt-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                                    class="mt-2 text-xs font-semibold hover:underline"
+                                    :class="note.visibility === 'private' ? 'text-amber-700 dark:text-amber-300' : 'text-cyan-700 dark:text-cyan-300'"
                                     @click="toggleNoteExpanded(note.id)"
                                 >
                                     {{ isNoteExpanded(note.id) ? 'Show less' : 'Show more' }}
@@ -457,8 +510,19 @@ async function deleteProjectNote(note) {
                         </div>
                     </div>
 
-                    <div class="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                    <div
+                        class="mt-4 rounded-xl border p-4"
+                        :class="activeNotesTab === 'private'
+                            ? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20'
+                            : 'border-cyan-300 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-900/20'"
+                    >
                         <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Add Note</label>
+                        <p
+                            class="mt-1 text-xs font-semibold"
+                            :class="activeNotesTab === 'private' ? 'text-amber-700 dark:text-amber-300' : 'text-cyan-700 dark:text-cyan-300'"
+                        >
+                            Posting to: {{ activeTabLabel }}
+                        </p>
                         <textarea
                             v-model="noteBody"
                             rows="3"
@@ -468,7 +532,8 @@ async function deleteProjectNote(note) {
                         <div class="mt-3 flex justify-end">
                             <button
                                 type="button"
-                                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition disabled:opacity-60"
+                                class="rounded-lg px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+                                :class="activeNotesTab === 'private' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-cyan-600 hover:bg-cyan-700'"
                                 :disabled="isSavingNote"
                                 @click="submitProjectNote"
                             >
