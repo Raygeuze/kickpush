@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\ProjectNote;
 use App\Models\TimerSession;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -212,6 +213,28 @@ class ProjectController extends Controller
         $assignedSessionsCount = (int) $sessions->whereNotNull('invoice_id')->count();
         $unassignedSessionsCount = max(0, $sessionCount - $assignedSessionsCount);
         $averageSessionSeconds = $sessionCount > 0 ? (int) round($totalDurationSeconds / $sessionCount) : 0;
+        $sessionUserIds = $sessions
+            ->pluck('user_id')
+            ->filter()
+            ->map(fn ($userId): int => (int) $userId)
+            ->unique()
+            ->values()
+            ->all();
+        $userRateMap = $this->userChargeOutRateMapForIds($sessionUserIds);
+        $sessionBillableById = [];
+        $totalBillableAmount = 0.0;
+
+        foreach ($sessions as $session) {
+            $durationSeconds = max(0, (int) ($session->duration_seconds ?? 0));
+            $sessionUserId = $session->user_id !== null ? (int) $session->user_id : null;
+            $effectiveHourlyRate = $this->resolveSessionHourlyRate($sessionUserId, $hourlyRate, $userRateMap);
+            $billableAmount = round(($durationSeconds / 3600) * $effectiveHourlyRate, 2);
+
+            $sessionBillableById[(int) $session->id] = $billableAmount;
+            $totalBillableAmount += $billableAmount;
+        }
+
+        $totalBillableAmount = round($totalBillableAmount, 2);
 
         $taskSummariesById = [];
 
@@ -227,7 +250,7 @@ class ProjectController extends Controller
                 'unassigned_sessions_count' => 0,
                 'total_duration_seconds' => 0,
                 'total_hours' => 0,
-                'billable_amount' => 0,
+                'billable_amount' => 0.0,
                 'average_session_seconds' => 0,
                 'last_tracked_at' => null,
             ];
@@ -245,6 +268,7 @@ class ProjectController extends Controller
 
             $summary['sessions_count'] += 1;
             $summary['total_duration_seconds'] += $durationSeconds;
+            $summary['billable_amount'] += (float) ($sessionBillableById[(int) $session->id] ?? 0.0);
 
             if ($session->invoice_id !== null) {
                 $summary['assigned_sessions_count'] += 1;
@@ -259,9 +283,9 @@ class ProjectController extends Controller
             $taskSummariesById[$taskId] = $summary;
         }
 
-        $taskSummaries = array_values(array_map(function (array $summary) use ($hourlyRate): array {
+        $taskSummaries = array_values(array_map(function (array $summary): array {
             $summary['total_hours'] = round(((int) $summary['total_duration_seconds']) / 3600, 2);
-            $summary['billable_amount'] = round($summary['total_hours'] * $hourlyRate, 2);
+            $summary['billable_amount'] = round((float) $summary['billable_amount'], 2);
             $summary['average_session_seconds'] = $summary['sessions_count'] > 0
                 ? (int) round(((int) $summary['total_duration_seconds']) / (int) $summary['sessions_count'])
                 : 0;
@@ -278,9 +302,8 @@ class ProjectController extends Controller
             return (int) $b['total_duration_seconds'] <=> (int) $a['total_duration_seconds'];
         });
 
-        $recentSessions = $sessions->take(30)->map(function (TimerSession $session) use ($hourlyRate): array {
+        $recentSessions = $sessions->take(30)->map(function (TimerSession $session) use ($sessionBillableById): array {
             $durationSeconds = (int) ($session->duration_seconds ?? 0);
-            $durationHours = round($durationSeconds / 3600, 2);
 
             return [
                 'id' => $session->id,
@@ -293,7 +316,7 @@ class ProjectController extends Controller
                 'started_at' => $session->started_at ? $session->started_at->toIso8601String() : null,
                 'stopped_at' => $session->stopped_at ? $session->stopped_at->toIso8601String() : null,
                 'duration_seconds' => $durationSeconds,
-                'billable_amount' => round($durationHours * $hourlyRate, 2),
+                'billable_amount' => (float) ($sessionBillableById[(int) $session->id] ?? 0.0),
             ];
         })->values();
 
@@ -318,7 +341,7 @@ class ProjectController extends Controller
                 'assigned_sessions_count' => $assignedSessionsCount,
                 'unassigned_sessions_count' => $unassignedSessionsCount,
                 'total_duration_seconds' => $totalDurationSeconds,
-                'total_billable_amount' => round(($totalDurationSeconds / 3600) * $hourlyRate, 2),
+                'total_billable_amount' => $totalBillableAmount,
                 'average_session_seconds' => $averageSessionSeconds,
                 'project_invoice_count' => $projectInvoiceCount,
                 'project_paid_invoice_count' => $projectPaidInvoiceCount,
@@ -600,6 +623,39 @@ class ProjectController extends Controller
         abort_unless($client !== null, 403, 'Client does not belong to this user.');
 
         return $client;
+    }
+
+    /**
+     * @param array<int, int> $userIds
+     * @return array<int, float>
+     */
+    private function userChargeOutRateMapForIds(array $userIds): array
+    {
+        if (empty($userIds)) {
+            return [];
+        }
+
+        return User::query()
+            ->whereIn('id', $userIds)
+            ->get(['id', 'hourly_rate'])
+            ->mapWithKeys(fn (User $user): array => [(int) $user->id => (float) ($user->hourly_rate ?? 0.0)])
+            ->all();
+    }
+
+    /**
+     * @param array<int, float> $userRateMap
+     */
+    private function resolveSessionHourlyRate(?int $sessionUserId, float $clientHourlyRate, array $userRateMap): float
+    {
+        if ($sessionUserId !== null) {
+            $userRate = (float) ($userRateMap[$sessionUserId] ?? 0.0);
+
+            if ($userRate > 0) {
+                return $userRate;
+            }
+        }
+
+        return $clientHourlyRate;
     }
 
     private function findProjectNoteForActorOrFail(Project $project, int $noteId): ProjectNote

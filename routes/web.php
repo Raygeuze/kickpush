@@ -6,6 +6,7 @@ use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\TeamAdditionalTaxController;
+use App\Http\Controllers\TeamMemberChargeOutRateController;
 use App\Http\Controllers\TeamPaymentInformationController;
 use App\Http\Controllers\TimerSessionController;
 use Illuminate\Support\Facades\Route;
@@ -25,6 +26,8 @@ Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
         ->name('teams.additionalTaxes.update');
     Route::put('/teams/{team}/payment-information', [TeamPaymentInformationController::class, 'update'])
         ->name('teams.paymentInformation.update');
+    Route::put('/teams/{team}/members/{user}/charge-out-rate', [TeamMemberChargeOutRateController::class, 'update'])
+        ->name('teams.members.chargeOutRate.update');
 
     Route::get('/clients', [ClientController::class, 'indexPage'])->name('clients.index');
     Route::get('/clients/projects', [ClientController::class, 'projectsPage'])->name('clients.projectsPage');

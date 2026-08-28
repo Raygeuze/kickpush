@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { router, useForm, usePage } from '@inertiajs/vue3';
 import ActionMessage from '@/Components/ActionMessage.vue';
 import ActionSection from '@/Components/ActionSection.vue';
@@ -40,6 +40,24 @@ const managingRoleFor = ref(null);
 const confirmingLeavingTeam = ref(false);
 const teamMemberBeingRemoved = ref(null);
 const teamMemberForOwnershipTransfer = ref(null);
+const chargeOutRatesByUserId = ref({});
+const chargeOutRateErrorByUserId = ref({});
+const savingChargeOutRateForUserId = ref(null);
+
+watch(
+    () => props.team?.users,
+    (users) => {
+        const nextRates = {};
+
+        (users || []).forEach((user) => {
+            const rate = Number(user?.hourly_rate || 0);
+            nextRates[user.id] = rate > 0 ? rate.toFixed(2) : '';
+        });
+
+        chargeOutRatesByUserId.value = nextRates;
+    },
+    { immediate: true }
+);
 
 const addTeamMember = () => {
     addTeamMemberForm.post(route('team-members.store', props.team), {
@@ -114,6 +132,93 @@ const displayableRole = (role) => {
 const isTeamOwner = (teamMember) => {
     const ownerId = props.team?.owner?.id ?? props.team?.user_id;
     return Number(ownerId) === Number(teamMember?.id);
+};
+
+const currentTeamRole = () => {
+    const currentUserId = Number(page.props.auth?.user?.id || 0);
+    const currentTeamMember = (props.team?.users || []).find((member) => Number(member.id) === currentUserId);
+
+    return String(currentTeamMember?.membership?.role || '');
+};
+
+const canEditChargeOutRate = (teamMember) => {
+    if (!teamMember) {
+        return false;
+    }
+
+    const currentUserId = Number(page.props.auth?.user?.id || 0);
+
+    if (isTeamOwner(page.props.auth?.user)) {
+        return true;
+    }
+
+    const role = currentTeamRole();
+
+    if (role === 'admin' || role === 'editor') {
+        return true;
+    }
+
+    if (role === 'employee') {
+        return Number(teamMember.id) === currentUserId;
+    }
+
+    return false;
+};
+
+const chargeOutRateLabel = (teamMember) => {
+    const rate = Number(teamMember?.hourly_rate || 0);
+
+    if (rate <= 0) {
+        return 'Client default';
+    }
+
+    return `$${rate.toFixed(2)}/hr`;
+};
+
+const updateChargeOutRate = async (teamMember) => {
+    if (!canEditChargeOutRate(teamMember) || savingChargeOutRateForUserId.value !== null) {
+        return;
+    }
+
+    const userId = Number(teamMember?.id || 0);
+
+    if (userId <= 0) {
+        return;
+    }
+
+    const rawValue = String(chargeOutRatesByUserId.value[userId] ?? '').trim();
+    const numericValue = rawValue === '' ? 0 : Number(rawValue);
+
+    if (!Number.isFinite(numericValue) || numericValue < 0) {
+        chargeOutRateErrorByUserId.value = {
+            ...chargeOutRateErrorByUserId.value,
+            [userId]: 'Enter a valid rate of 0 or more.',
+        };
+        return;
+    }
+
+    chargeOutRateErrorByUserId.value = {
+        ...chargeOutRateErrorByUserId.value,
+        [userId]: '',
+    };
+    savingChargeOutRateForUserId.value = userId;
+
+    try {
+        const response = await axios.put(route('teams.members.chargeOutRate.update', [props.team, teamMember]), {
+            hourly_rate: numericValue,
+        });
+
+        const updatedRate = Number(response?.data?.user?.hourly_rate || 0);
+        teamMember.hourly_rate = updatedRate;
+        chargeOutRatesByUserId.value[userId] = updatedRate > 0 ? updatedRate.toFixed(2) : '';
+    } catch (error) {
+        chargeOutRateErrorByUserId.value = {
+            ...chargeOutRateErrorByUserId.value,
+            [userId]: error?.response?.data?.message || 'Could not update rate.',
+        };
+    } finally {
+        savingChargeOutRateForUserId.value = null;
+    }
 };
 </script>
 
@@ -247,62 +352,98 @@ const isTeamOwner = (teamMember) => {
 
                 <template #description>
                     All of the people that are part of this team.
+                    If a user's hourly rate is not set, invoice calculations default to the hourly rate configured on the client.
                 </template>
 
                 <!-- Team Member List -->
                 <template #content>
-                    <div class="space-y-6">
-                        <div v-for="user in team.users" :key="user.id" class="flex items-center justify-between">
-                            <div class="flex items-center">
-                                <img class="size-8 rounded-full object-cover" :src="user.profile_photo_url" :alt="user.name">
-                                <div class="ms-4">
-                                    {{ user.name }}
+                    <div class="space-y-4">
+                        <div
+                            v-for="user in team.users"
+                            :key="user.id"
+                            class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900/40"
+                        >
+                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div class="flex items-center">
+                                    <img class="size-9 rounded-full object-cover" :src="user.profile_photo_url" :alt="user.name">
+                                    <div class="ms-3">
+                                        <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ user.name }}</p>
+
+                                        <div class="mt-1 flex items-center gap-2">
+                                            <button
+                                                v-if="userPermissions.canUpdateTeamMembers && availableRoles.length"
+                                                class="text-xs text-gray-500 underline dark:text-gray-300"
+                                                @click="manageRole(user)"
+                                            >
+                                                {{ displayableRole(user.membership.role) }}
+                                            </button>
+
+                                            <div v-else-if="availableRoles.length" class="text-xs text-gray-500 dark:text-gray-300">
+                                                {{ displayableRole(user.membership.role) }}
+                                            </div>
+
+                                            <div v-if="isTeamOwner(user)" class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                                Owner
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div class="flex items-center">
-                                <!-- Manage Team Member Role -->
-                                <button
-                                    v-if="userPermissions.canUpdateTeamMembers && availableRoles.length"
-                                    class="ms-2 text-sm text-gray-400 underline"
-                                    @click="manageRole(user)"
-                                >
-                                    {{ displayableRole(user.membership.role) }}
-                                </button>
+                                <div class="flex flex-col gap-3 lg:items-end">
+                                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/70">
+                                        <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-300">Charge-out rate</p>
+                                        <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ chargeOutRateLabel(user) }}</p>
 
-                                <div v-else-if="availableRoles.length" class="ms-2 text-sm text-gray-400">
-                                    {{ displayableRole(user.membership.role) }}
+                                        <div v-if="canEditChargeOutRate(user)" class="mt-2 flex flex-wrap items-center gap-2">
+                                            <TextInput
+                                                v-model="chargeOutRatesByUserId[user.id]"
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                class="w-32"
+                                                placeholder="Client default"
+                                            />
+                                            <button
+                                                type="button"
+                                                class="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                                                :disabled="savingChargeOutRateForUserId === user.id"
+                                                @click="updateChargeOutRate(user)"
+                                            >
+                                                {{ savingChargeOutRateForUserId === user.id ? 'Saving...' : 'Save rate' }}
+                                            </button>
+                                        </div>
+
+                                        <p v-if="chargeOutRateErrorByUserId[user.id]" class="mt-1 text-xs text-red-600 dark:text-red-300">
+                                            {{ chargeOutRateErrorByUserId[user.id] }}
+                                        </p>
+                                    </div>
+
+                                    <div class="flex flex-wrap items-center gap-3 text-sm">
+                                        <button
+                                            v-if="userPermissions.canUpdateTeamMembers && $page.props.auth.user.current_team?.can_transfer_ownership && !isTeamOwner(user)"
+                                            class="cursor-pointer text-indigo-600"
+                                            @click="confirmOwnershipTransfer(user)"
+                                        >
+                                            Make owner
+                                        </button>
+
+                                        <button
+                                            v-if="$page.props.auth.user.id === user.id"
+                                            class="cursor-pointer text-red-500"
+                                            @click="confirmLeavingTeam"
+                                        >
+                                            Leave
+                                        </button>
+
+                                        <button
+                                            v-else-if="userPermissions.canRemoveTeamMembers && !isTeamOwner(user)"
+                                            class="cursor-pointer text-red-500"
+                                            @click="confirmTeamMemberRemoval(user)"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
                                 </div>
-
-                                <div v-if="isTeamOwner(user)" class="ms-2 text-xs font-semibold text-emerald-600">
-                                    Owner
-                                </div>
-
-                                <button
-                                    v-if="userPermissions.canUpdateTeamMembers && $page.props.auth.user.current_team?.can_transfer_ownership && !isTeamOwner(user)"
-                                    class="cursor-pointer ms-6 text-sm text-indigo-600"
-                                    @click="confirmOwnershipTransfer(user)"
-                                >
-                                    Make owner
-                                </button>
-
-                                <!-- Leave Team -->
-                                <button
-                                    v-if="$page.props.auth.user.id === user.id"
-                                    class="cursor-pointer ms-6 text-sm text-red-500"
-                                    @click="confirmLeavingTeam"
-                                >
-                                    Leave
-                                </button>
-
-                                <!-- Remove Team Member -->
-                                <button
-                                    v-else-if="userPermissions.canRemoveTeamMembers && !isTeamOwner(user)"
-                                    class="cursor-pointer ms-6 text-sm text-red-500"
-                                    @click="confirmTeamMemberRemoval(user)"
-                                >
-                                    Remove
-                                </button>
                             </div>
                         </div>
                     </div>
