@@ -450,8 +450,9 @@ async function deleteInvoice(invoiceId) {
                         >
                             <div class="flex flex-wrap items-start justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatInvoiceId(invoice.id) }}</p>
-                                    <p class="text-xs text-gray-600 dark:text-gray-300">Client: {{ invoice.client ? invoice.client.name : 'Unassigned' }}</p>
+                                    <p class="text-base font-semibold text-gray-900 dark:text-white">
+                                        {{ invoice.client ? invoice.client.name : 'Unassigned Client' }} - {{ formatInvoiceId(invoice.id) }}
+                                    </p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Created: {{ formatDate(invoice.created_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Issued: {{ formatDate(invoice.issued_at) }}</p>
                                     <p class="text-xs text-gray-600 dark:text-gray-300">Due: {{ formatDate(invoice.due_at) }}</p>
