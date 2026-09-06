@@ -9,6 +9,7 @@ use App\Http\Controllers\TeamAdditionalTaxController;
 use App\Http\Controllers\TeamMemberChargeOutRateController;
 use App\Http\Controllers\TeamPaymentInformationController;
 use App\Http\Controllers\TimerSessionController;
+use App\Http\Controllers\TimesheetController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -55,6 +56,8 @@ Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
     Route::post('/business-expenses', [BusinessExpenseController::class, 'store'])->name('businessExpenses.store');
     Route::post('/business-expenses/{businessExpenseId}', [BusinessExpenseController::class, 'update'])->name('businessExpenses.update');
     Route::delete('/business-expenses/{businessExpenseId}', [BusinessExpenseController::class, 'destroy'])->name('businessExpenses.destroy');
+
+    Route::get('/timesheet', [TimesheetController::class, 'index'])->name('timesheets.index');
 
     Route::post('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
     Route::get('/invoices/latest', [InvoiceController::class, 'latest'])->name('invoices.latest');

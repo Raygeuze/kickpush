@@ -45,6 +45,9 @@ const logout = () => {
                                 <NavLink :href="route('dashboard')" :active="route().current('dashboard')">
                                     Timer
                                 </NavLink>
+                                <NavLink v-if="$page.props.auth.user" :href="route('timesheets.index')" :active="route().current('timesheets.*')">
+                                    Timesheet
+                                </NavLink>
                                 <NavLink v-if="$page.props.auth.user" :href="route('invoices.index')" :active="route().current('invoices.index')">
                                     Invoices
                                 </NavLink>
@@ -186,6 +189,9 @@ const logout = () => {
                     <div class="pt-2 pb-3 space-y-1">
                         <ResponsiveNavLink :href="route('dashboard')" :active="route().current('dashboard')">
                             Timer
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink v-if="$page.props.auth.user" :href="route('timesheets.index')" :active="route().current('timesheets.*')">
+                            Timesheet
                         </ResponsiveNavLink>
                         <ResponsiveNavLink v-if="$page.props.auth.user" :href="route('invoices.index')" :active="route().current('invoices.index')">
                             Invoices
