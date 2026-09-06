@@ -20,6 +20,7 @@ class Team extends JetstreamTeam
      */
     protected $fillable = [
         'name',
+        'timezone',
         'personal_team',
         'bank_account_name',
         'bank_name',

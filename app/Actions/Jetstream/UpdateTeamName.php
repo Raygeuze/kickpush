@@ -4,8 +4,10 @@ namespace App\Actions\Jetstream;
 
 use App\Models\Team;
 use App\Models\User;
+use DateTimeZone;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Laravel\Jetstream\Contracts\UpdatesTeamNames;
 
 class UpdateTeamName implements UpdatesTeamNames
@@ -19,12 +21,17 @@ class UpdateTeamName implements UpdatesTeamNames
     {
         Gate::forUser($user)->authorize('update', $team);
 
-        Validator::make($input, [
+        $validated = Validator::make($input, [
             'name' => ['required', 'string', 'max:255'],
+            'timezone' => ['sometimes', 'required', 'string', Rule::in(DateTimeZone::listIdentifiers(DateTimeZone::ALL_WITH_BC))],
         ])->validateWithBag('updateTeamName');
 
-        $team->forceFill([
-            'name' => $input['name'],
-        ])->save();
+        $attributes = ['name' => $validated['name']];
+
+        if (array_key_exists('timezone', $validated)) {
+            $attributes['timezone'] = $validated['timezone'];
+        }
+
+        $team->forceFill($attributes)->save();
     }
 }

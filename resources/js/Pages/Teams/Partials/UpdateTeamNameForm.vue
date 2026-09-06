@@ -14,7 +14,14 @@ const props = defineProps({
 
 const form = useForm({
     name: props.team.name,
+    timezone: props.team.timezone || 'UTC',
 });
+
+const timezoneOptions = [
+    'UTC',
+    props.team.timezone,
+    ...(typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []),
+].filter((timezone, index, options) => timezone && options.indexOf(timezone) === index);
 
 const updateTeamName = () => {
     form.put(route('teams.update', props.team), {
@@ -27,11 +34,11 @@ const updateTeamName = () => {
 <template>
     <FormSection @submitted="updateTeamName">
         <template #title>
-            Team Name
+            Team Details
         </template>
 
         <template #description>
-            The team's name and owner information.
+            The team's identity and reporting timezone.
         </template>
 
         <template #form>
@@ -64,6 +71,23 @@ const updateTeamName = () => {
                 />
 
                 <InputError :message="form.errors.name" class="mt-2" />
+            </div>
+
+            <div class="col-span-6 sm:col-span-4">
+                <InputLabel for="timezone" value="Timezone" />
+
+                <select
+                    id="timezone"
+                    v-model="form.timezone"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:opacity-60"
+                    :disabled="! permissions.canUpdateTeam"
+                >
+                    <option v-for="timezone in timezoneOptions" :key="timezone" :value="timezone">
+                        {{ timezone }}
+                    </option>
+                </select>
+
+                <InputError :message="form.errors.timezone" class="mt-2" />
             </div>
         </template>
 

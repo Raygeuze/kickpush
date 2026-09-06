@@ -47,6 +47,7 @@ class HandleInertiaRequests extends Middleware
         $allTeams = $user ? $user->allTeams()->map(fn ($team) => [
             'id' => (int) $team->id,
             'name' => (string) $team->name,
+            'timezone' => (string) ($team->timezone ?: 'UTC'),
             'personal_team' => (bool) $team->personal_team,
         ])->values()->all() : [];
         $teamAdditionalTaxes = $currentTeamId !== null
@@ -85,6 +86,7 @@ class HandleInertiaRequests extends Middleware
                         'current_team' => $currentTeam ? [
                             'id' => (int) $currentTeam->id,
                             'name' => (string) $currentTeam->name,
+                            'timezone' => (string) ($currentTeam->timezone ?: 'UTC'),
                             'personal_team' => (bool) $currentTeam->personal_team,
                             'role' => $currentTeamRole ? (string) $currentTeamRole->key : null,
                             'is_employee' => $isCurrentTeamEmployee,
