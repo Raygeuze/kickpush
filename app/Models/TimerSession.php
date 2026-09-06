@@ -16,6 +16,7 @@ class TimerSession extends Model
         'invoice_id',
         'task_id',
         'started_at',
+        'active_started_at',
         'paused_at',
         'stopped_at',
         'accumulated_seconds',
@@ -26,6 +27,7 @@ class TimerSession extends Model
     {
         return [
             'started_at' => 'datetime',
+            'active_started_at' => 'datetime',
             'paused_at' => 'datetime',
             'stopped_at' => 'datetime',
         ];

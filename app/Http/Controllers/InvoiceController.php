@@ -485,12 +485,15 @@ class InvoiceController extends Controller
             ], 422);
         }
 
+        $startedAt = now();
+
         $session = TimerSession::create([
             'user_id' => Auth::id(),
             'team_id' => $this->currentTeamIdOrFail(),
             'invoice_id' => $invoice->id,
             'task_id' => $taskId,
-            'started_at' => now(),
+            'started_at' => $startedAt,
+            'active_started_at' => $startedAt,
             'accumulated_seconds' => 0,
         ]);
 
@@ -535,9 +538,11 @@ class InvoiceController extends Controller
         }
 
         $pausedAt = now();
-        $elapsedSinceStart = (int) floor($session->started_at->diffInSeconds($pausedAt));
+        $activeStartedAt = $session->active_started_at ?? $session->started_at;
+        $elapsedSinceStart = (int) floor($activeStartedAt->diffInSeconds($pausedAt));
         $session->accumulated_seconds = (int) ($session->accumulated_seconds ?? 0)
             + max(0, $elapsedSinceStart);
+        $session->active_started_at = null;
         $session->paused_at = $pausedAt;
         $session->save();
 
@@ -581,7 +586,7 @@ class InvoiceController extends Controller
             ], 404);
         }
 
-        $session->started_at = now();
+        $session->active_started_at = now();
         $session->paused_at = null;
         $session->save();
 
@@ -613,6 +618,7 @@ class InvoiceController extends Controller
         $stoppedAt = now();
         $session->stopped_at = $stoppedAt;
         $session->duration_seconds = $this->calculateElapsedSeconds($session, $stoppedAt);
+        $session->active_started_at = null;
         $session->paused_at = null;
         $session->save();
 
@@ -704,7 +710,7 @@ class InvoiceController extends Controller
             ], 422);
         }
 
-        $session->started_at = now();
+        $session->active_started_at = now();
         $session->paused_at = null;
         $session->stopped_at = null;
         $session->accumulated_seconds = max(0, (int) ($session->duration_seconds ?? 0));
@@ -843,6 +849,7 @@ class InvoiceController extends Controller
 
         $session->duration_seconds = $durationSeconds;
         $session->accumulated_seconds = 0;
+        $session->active_started_at = null;
         $session->paused_at = null;
         $session->save();
 
@@ -962,6 +969,7 @@ class InvoiceController extends Controller
             $runningSession->invoice_id = $invoice->id;
             $runningSession->stopped_at = $stoppedAt;
             $runningSession->duration_seconds = $this->calculateElapsedSeconds($runningSession, $stoppedAt);
+            $runningSession->active_started_at = null;
             $runningSession->paused_at = null;
             $runningSession->save();
 
@@ -1498,7 +1506,8 @@ class InvoiceController extends Controller
             return $accumulated;
         }
 
-        $elapsedSinceStart = (int) floor($session->started_at->diffInSeconds($referenceTime));
+        $activeStartedAt = $session->active_started_at ?? $session->started_at;
+        $elapsedSinceStart = (int) floor($activeStartedAt->diffInSeconds($referenceTime));
 
         return $accumulated + max(0, $elapsedSinceStart);
     }

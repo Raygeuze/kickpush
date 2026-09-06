@@ -118,11 +118,14 @@ class TimerSessionController extends Controller
             ], 422);
         }
 
+        $startedAt = now();
+
         $session = TimerSession::create([
             'user_id' => Auth::id(),
             'team_id' => $this->currentTeamIdOrFail(),
             'task_id' => $task->id,
-            'started_at' => now(),
+            'started_at' => $startedAt,
+            'active_started_at' => $startedAt,
             'accumulated_seconds' => 0,
         ]);
 
@@ -154,9 +157,11 @@ class TimerSessionController extends Controller
         }
 
         $pausedAt = now();
-        $elapsedSinceStart = (int) floor($session->started_at->diffInSeconds($pausedAt));
+        $activeStartedAt = $session->active_started_at ?? $session->started_at;
+        $elapsedSinceStart = (int) floor($activeStartedAt->diffInSeconds($pausedAt));
         $session->accumulated_seconds = (int) ($session->accumulated_seconds ?? 0)
             + max(0, $elapsedSinceStart);
+        $session->active_started_at = null;
         $session->paused_at = $pausedAt;
         $session->save();
 
@@ -187,7 +192,7 @@ class TimerSessionController extends Controller
             ], 404);
         }
 
-        $session->started_at = now();
+        $session->active_started_at = now();
         $session->paused_at = null;
         $session->save();
 
@@ -212,6 +217,7 @@ class TimerSessionController extends Controller
         $stoppedAt = now();
         $session->stopped_at = $stoppedAt;
         $session->duration_seconds = $this->calculateElapsedSeconds($session, $stoppedAt);
+        $session->active_started_at = null;
         $session->paused_at = null;
         $session->save();
 
@@ -418,7 +424,8 @@ class TimerSessionController extends Controller
             return $accumulated;
         }
 
-        $elapsedSinceStart = (int) floor($session->started_at->diffInSeconds($referenceTime));
+        $activeStartedAt = $session->active_started_at ?? $session->started_at;
+        $elapsedSinceStart = (int) floor($activeStartedAt->diffInSeconds($referenceTime));
 
         return $accumulated + max(0, $elapsedSinceStart);
     }
