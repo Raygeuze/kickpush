@@ -32,7 +32,7 @@ class TimerSessionElapsedTimeTest extends TestCase
         $method = new ReflectionMethod($controllerClass, 'calculateElapsedSeconds');
 
         $elapsed = $method->invoke(
-            new $controllerClass(),
+            app($controllerClass),
             $session,
             CarbonImmutable::parse('2026-09-08 09:30:00', 'UTC')
         );
@@ -52,7 +52,7 @@ class TimerSessionElapsedTimeTest extends TestCase
         $method = new ReflectionMethod($controllerClass, 'calculateElapsedSeconds');
 
         $elapsed = $method->invoke(
-            new $controllerClass(),
+            app($controllerClass),
             $session,
             CarbonImmutable::parse('2026-09-07 10:20:00', 'UTC')
         );

@@ -24,6 +24,7 @@ defineProps({
                     <div class="mt-1 flex flex-wrap items-center gap-2">
                         <p class="text-xs text-gray-600 dark:text-gray-300">{{ session.task?.name || 'General' }}<span v-if="session.task?.project"> in {{ session.task.project.name }}</span></p>
                         <button
+                            v-if="controller.canManageSession(session)"
                             type="button"
                             class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:bg-gray-100 disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                             :disabled="controller.isFinalized || controller.isSavingSessionDetails(session.id)"
@@ -120,7 +121,7 @@ defineProps({
                 <template v-if="!controller.isEditingSessionDuration(session.id)">
                     <p class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ controller.displaySessionDuration(session) }}</p>
                     <button
-                        v-if="controller.isSessionStopped(session)"
+                        v-if="controller.isSessionStopped(session) && controller.canManageSession(session)"
                         type="button"
                         class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:bg-gray-100 disabled:opacity-60 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                         :disabled="controller.isFinalized || controller.isSavingSessionDuration(session.id)"
@@ -165,7 +166,7 @@ defineProps({
                 </template>
 
                 <button
-                    v-if="controller.isSessionStopped(session)"
+                    v-if="controller.isSessionStopped(session) && controller.canOperateSession(session)"
                     type="button"
                     class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-60"
                     :disabled="controller.isFinalized || controller.isBusy(session.id)"
@@ -175,7 +176,7 @@ defineProps({
                 </button>
 
                 <button
-                    v-if="!controller.isSessionStopped(session)"
+                    v-if="!controller.isSessionStopped(session) && controller.canOperateSession(session)"
                     type="button"
                     class="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-60"
                     :disabled="controller.isFinalized || controller.isInlineTimerLoading || controller.isBusy(session.id) || controller.inlineActiveSessionId !== session.id"

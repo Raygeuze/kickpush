@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -33,7 +34,11 @@ class ProjectController extends Controller
             'user_id' => 'nullable|integer|exists:users,id',
         ]);
 
-        $selectedUserId = isset($validated['user_id']) ? (int) $validated['user_id'] : null;
+        Gate::authorize('viewAny', TimerSession::class);
+        $canViewTeamSessions = Gate::allows('viewTeam', TimerSession::class);
+        $selectedUserId = $canViewTeamSessions
+            ? (isset($validated['user_id']) ? (int) $validated['user_id'] : null)
+            : (int) Auth::id();
 
         $project = $this->findProjectForActorOrFail($projectId)->load('client:id,name,currency,hourly_rate');
         $projectNotes = $this->projectNotesForActor($project)
@@ -82,6 +87,7 @@ class ProjectController extends Controller
 
         $workers = TimerSession::query()
             ->whereIn('task_id', $taskIds)
+            ->when(!$canViewTeamSessions, fn ($query) => $query->where('user_id', Auth::id()))
             ->with('user:id,name')
             ->select('user_id')
             ->distinct()
@@ -164,6 +170,7 @@ class ProjectController extends Controller
                 'started_at',
                 'stopped_at',
                 'duration_seconds',
+                'hourly_rate_snapshot',
             ]);
 
         $runningSessionsCount = (clone $baseSessionsQuery)
@@ -226,8 +233,7 @@ class ProjectController extends Controller
 
         foreach ($sessions as $session) {
             $durationSeconds = max(0, (int) ($session->duration_seconds ?? 0));
-            $sessionUserId = $session->user_id !== null ? (int) $session->user_id : null;
-            $effectiveHourlyRate = $this->resolveSessionHourlyRate($sessionUserId, $hourlyRate, $userRateMap);
+            $effectiveHourlyRate = $this->resolveSessionHourlyRate($session, $hourlyRate, $userRateMap);
             $billableAmount = round(($durationSeconds / 3600) * $effectiveHourlyRate, 2);
 
             $sessionBillableById[(int) $session->id] = $billableAmount;
@@ -645,8 +651,14 @@ class ProjectController extends Controller
     /**
      * @param array<int, float> $userRateMap
      */
-    private function resolveSessionHourlyRate(?int $sessionUserId, float $clientHourlyRate, array $userRateMap): float
+    private function resolveSessionHourlyRate(TimerSession $session, float $clientHourlyRate, array $userRateMap): float
     {
+        if ($session->hourly_rate_snapshot !== null) {
+            return (float) $session->hourly_rate_snapshot;
+        }
+
+        $sessionUserId = $session->user_id !== null ? (int) $session->user_id : null;
+
         if ($sessionUserId !== null) {
             $userRate = (float) ($userRateMap[$sessionUserId] ?? 0.0);
 

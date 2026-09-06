@@ -21,6 +21,10 @@ class TimerSession extends Model
         'stopped_at',
         'accumulated_seconds',
         'duration_seconds',
+        'hourly_rate_snapshot',
+        'hourly_rate_source',
+        'currency_snapshot',
+        'rate_snapshot_at',
     ];
 
     protected function casts(): array
@@ -30,6 +34,8 @@ class TimerSession extends Model
             'active_started_at' => 'datetime',
             'paused_at' => 'datetime',
             'stopped_at' => 'datetime',
+            'hourly_rate_snapshot' => 'decimal:2',
+            'rate_snapshot_at' => 'datetime',
         ];
     }
 

@@ -12,11 +12,7 @@ import { useInvoicePageController } from '@/Pages/Invoices/composables/useInvoic
 
 const page = usePage();
 const canManageNonTimerRecords = computed(() => page.props.auth?.user?.current_team?.can_manage_non_timer_records !== false);
-const canDeleteAnyTimerSession = computed(() => {
-    const currentTeam = page.props.auth?.user?.current_team;
-
-    return currentTeam?.is_owner === true || currentTeam?.role === 'admin';
-});
+const canDeleteAnyTimerSession = computed(() => page.props.auth?.user?.current_team?.can_manage_team_sessions === true);
 
 const props = defineProps({
     invoice: {
@@ -175,6 +171,8 @@ const {
     deleteInlineTimer,
     resumeStoppedSession,
     submitResumedSession,
+    canManageSession,
+    canOperateSession,
     canDeleteSession,
     deleteSession,
     startEditingSessionDetails,
@@ -267,6 +265,8 @@ const sessionGroupsController = computed(() => ({
     setSessionDurationDraft,
     resumeStoppedSession,
     submitResumedSession,
+    canManageSession,
+    canOperateSession,
     canDeleteSession,
     deleteSession,
 }));

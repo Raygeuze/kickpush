@@ -1005,6 +1005,14 @@ export function useInvoicePageController(options) {
         return canDeleteAnyTimerSession || Number(session?.user_id) === Number(currentUserId);
     }
 
+    function canManageSession(session) {
+        return canDeleteAnyTimerSession || Number(session?.user_id) === Number(currentUserId);
+    }
+
+    function canOperateSession(session) {
+        return Number(session?.user_id) === Number(currentUserId);
+    }
+
     async function deleteSession(sessionId) {
         if (isFinalized.value || isBusy(sessionId)) {
             return;
@@ -1327,6 +1335,8 @@ export function useInvoicePageController(options) {
         deleteInlineTimer,
         resumeStoppedSession,
         submitResumedSession,
+        canManageSession,
+        canOperateSession,
         canDeleteSession,
         deleteSession,
         startEditingSessionDetails,

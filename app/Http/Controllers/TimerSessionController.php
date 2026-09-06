@@ -8,16 +8,25 @@ use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimerSession;
 use App\Models\User;
+use App\Services\TimerSessionBillingSnapshot;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 class TimerSessionController extends Controller
 {
+    private TimerSessionBillingSnapshot $billingSnapshots;
+
+    public function __construct(TimerSessionBillingSnapshot $billingSnapshots)
+    {
+        $this->billingSnapshots = $billingSnapshots;
+    }
+
     private function currentTeamIdOrFail(): int
     {
         $user = Auth::user();
@@ -30,6 +39,7 @@ class TimerSessionController extends Controller
     public function history(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
+        Gate::authorize('viewAny', TimerSession::class);
 
         $validated = $request->validate([
             'limit' => 'nullable|integer|min:1|max:50',
@@ -41,7 +51,9 @@ class TimerSessionController extends Controller
         $confirmedOnly = (bool) ($validated['confirmed_only'] ?? false);
         $invoiceId = $validated['invoice_id'] ?? null;
 
-        $query = $this->applyTeamScope(TimerSession::query());
+        $query = Gate::allows('viewTeam', TimerSession::class)
+            ? $this->applyTeamScope(TimerSession::query())
+            : $this->applyCurrentUserScope(TimerSession::query());
 
         if ($confirmedOnly) {
             $query->whereNotNull('invoice_id');
@@ -87,6 +99,7 @@ class TimerSessionController extends Controller
     public function start(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
+        Gate::authorize('create', TimerSession::class);
 
         $validated = $request->validate([
             'project_id' => 'required|integer|exists:projects,id',
@@ -119,15 +132,18 @@ class TimerSessionController extends Controller
         }
 
         $startedAt = now();
+        $project->loadMissing('client');
+        $user = Auth::user();
+        abort_unless($user instanceof User, 401, 'Authentication required.');
 
-        $session = TimerSession::create([
+        $session = TimerSession::create(array_merge([
             'user_id' => Auth::id(),
             'team_id' => $this->currentTeamIdOrFail(),
             'task_id' => $task->id,
             'started_at' => $startedAt,
             'active_started_at' => $startedAt,
             'accumulated_seconds' => 0,
-        ]);
+        ], $this->billingSnapshots->attributes($user, $project->client)));
 
         return response()->json([
             'message' => 'Timer started.',
@@ -155,6 +171,8 @@ class TimerSessionController extends Controller
                 'message' => 'No running timer found.',
             ], 404);
         }
+
+        Gate::authorize('operate', $session);
 
         $pausedAt = now();
         $activeStartedAt = $session->active_started_at ?? $session->started_at;
@@ -192,6 +210,8 @@ class TimerSessionController extends Controller
             ], 404);
         }
 
+        Gate::authorize('operate', $session);
+
         $session->active_started_at = now();
         $session->paused_at = null;
         $session->save();
@@ -214,6 +234,8 @@ class TimerSessionController extends Controller
             ], 404);
         }
 
+        Gate::authorize('operate', $session);
+
         $stoppedAt = now();
         $session->stopped_at = $stoppedAt;
         $session->duration_seconds = $this->calculateElapsedSeconds($session, $stoppedAt);
@@ -231,22 +253,7 @@ class TimerSessionController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
-        $user = Auth::user();
-        abort_unless($user instanceof User, 401, 'Authentication required.');
-        $this->currentTeamIdOrFail();
-        $team = $user->currentTeam;
-        $canDeleteAnyTeamSession = (int) $team->user_id === (int) $user->id
-            || DB::table('team_user')
-                ->where('team_id', $team->id)
-                ->where('user_id', $user->id)
-                ->where('role', 'admin')
-                ->exists();
-
         $sessionQuery = $this->applyTeamScope(TimerSession::query());
-
-        if (!$canDeleteAnyTeamSession) {
-            $sessionQuery->where('user_id', $user->id);
-        }
 
         $session = $sessionQuery
             ->with('invoice')
@@ -259,11 +266,7 @@ class TimerSessionController extends Controller
             ], 404);
         }
 
-        if ($session->invoice && in_array($session->invoice->status, ['finalized', 'paid'], true)) {
-            return response()->json([
-                'message' => 'Sessions on finalized or paid invoices cannot be deleted.',
-            ], 422);
-        }
+        Gate::authorize('delete', $session);
 
         $session->delete();
 
@@ -311,6 +314,8 @@ class TimerSessionController extends Controller
             }
         }
 
+        Gate::authorize('update', $session);
+
         $task = $session->task;
         $project = $task ? $task->project : null;
 
@@ -338,6 +343,7 @@ class TimerSessionController extends Controller
                 ->first();
 
             abort_unless($lockedSession !== null, 404, 'Timer session not found for this user.');
+            Gate::authorize('update', $lockedSession);
 
             if ($lockedSession->invoice_id !== null) {
                 $existingInvoice = $this->applyActorScope(Invoice::query())
@@ -364,6 +370,8 @@ class TimerSessionController extends Controller
                 $draftInvoice = $this->createDraftInvoiceForClient($userId, $teamId, $taskClientId);
             }
 
+            $draftInvoice->loadMissing('client');
+            $this->billingSnapshots->applyIfMissing($lockedSession, $draftInvoice->client);
             $lockedSession->invoice_id = (int) $draftInvoice->id;
             $lockedSession->save();
 
