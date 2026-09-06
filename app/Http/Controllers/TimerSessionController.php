@@ -91,7 +91,7 @@ class TimerSessionController extends Controller
             'running' => $isRunning,
             'paused' => $isPaused,
             'active' => $session !== null,
-            'elapsed_seconds' => $this->calculateElapsedSeconds($session),
+            'elapsed_seconds' => $session ? $session->elapsedSeconds() : 0,
             'session' => $session,
         ]);
     }
@@ -143,7 +143,7 @@ class TimerSessionController extends Controller
             'started_at' => $startedAt,
             'active_started_at' => $startedAt,
             'accumulated_seconds' => 0,
-        ], $this->billingSnapshots->attributes($user, $project->client)));
+        ], $this->billingSnapshots->attributes($user, $project->client, $task)));
 
         return response()->json([
             'message' => 'Timer started.',
@@ -238,7 +238,7 @@ class TimerSessionController extends Controller
 
         $stoppedAt = now();
         $session->stopped_at = $stoppedAt;
-        $session->duration_seconds = $this->calculateElapsedSeconds($session, $stoppedAt);
+        $session->duration_seconds = $session->elapsedSeconds($stoppedAt);
         $session->active_started_at = null;
         $session->paused_at = null;
         $session->save();
@@ -417,25 +417,6 @@ class TimerSessionController extends Controller
             ->whereNull('stopped_at')
             ->latest('started_at')
             ->first();
-    }
-
-    private function calculateElapsedSeconds(?TimerSession $session, $at = null): int
-    {
-        if (!$session) {
-            return 0;
-        }
-
-        $referenceTime = $at ?? now();
-        $accumulated = (int) ($session->accumulated_seconds ?? 0);
-
-        if ($session->paused_at !== null) {
-            return $accumulated;
-        }
-
-        $activeStartedAt = $session->active_started_at ?? $session->started_at;
-        $elapsedSinceStart = (int) floor($activeStartedAt->diffInSeconds($referenceTime));
-
-        return $accumulated + max(0, $elapsedSinceStart);
     }
 
     private function applyActorScope(Builder $query): Builder

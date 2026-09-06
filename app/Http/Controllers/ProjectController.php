@@ -8,6 +8,7 @@ use App\Models\Project;
 use App\Models\ProjectNote;
 use App\Models\TimerSession;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -85,21 +86,35 @@ class ProjectController extends Controller
             ]);
         }
 
-        $workers = TimerSession::query()
-            ->whereIn('task_id', $taskIds)
-            ->when(!$canViewTeamSessions, fn ($query) => $query->where('user_id', Auth::id()))
+        $projectSessionsQuery = TimerSession::query()
+            ->where('team_id', $this->currentTeamIdOrFail())
+            ->where(function (Builder $query) use ($taskIds, $project): void {
+                $query->whereIn('task_id', $taskIds)
+                    ->orWhere('project_id_snapshot', $project->id);
+            });
+
+        $workers = (clone $projectSessionsQuery)
+            ->when(!$canViewTeamSessions, function (Builder $query): void {
+                $query->where(function (Builder $userQuery): void {
+                    $userQuery->where('user_id', Auth::id())
+                        ->orWhere('user_id_snapshot', Auth::id());
+                });
+            })
             ->with('user:id,name')
-            ->select('user_id')
+            ->select(['user_id', 'user_id_snapshot', 'user_name_snapshot'])
             ->distinct()
             ->get()
             ->map(function (TimerSession $session): ?array {
-                if ($session->user_id === null || $session->user === null) {
+                $userId = $session->user_id ?? $session->user_id_snapshot;
+                $userName = optional($session->user)->name ?? $session->user_name_snapshot;
+
+                if ($userId === null || !$userName) {
                     return null;
                 }
 
                 return [
-                    'id' => (int) $session->user_id,
-                    'name' => (string) $session->user->name,
+                    'id' => (int) $userId,
+                    'name' => (string) $userName,
                 ];
             })
             ->filter()
@@ -147,11 +162,13 @@ class ProjectController extends Controller
             ]);
         }
 
-        $baseSessionsQuery = TimerSession::query()
-            ->whereIn('task_id', $taskIds);
+        $baseSessionsQuery = clone $projectSessionsQuery;
 
         if ($selectedUserId !== null) {
-            $baseSessionsQuery->where('user_id', $selectedUserId);
+            $baseSessionsQuery->where(function (Builder $query) use ($selectedUserId): void {
+                $query->where('user_id', $selectedUserId)
+                    ->orWhere('user_id_snapshot', $selectedUserId);
+            });
         }
 
         $sessions = (clone $baseSessionsQuery)
@@ -171,6 +188,8 @@ class ProjectController extends Controller
                 'stopped_at',
                 'duration_seconds',
                 'hourly_rate_snapshot',
+                'user_name_snapshot',
+                'task_name_snapshot',
             ]);
 
         $runningSessionsCount = (clone $baseSessionsQuery)
@@ -313,10 +332,10 @@ class ProjectController extends Controller
 
             return [
                 'id' => $session->id,
-                'user_id' => $session->user_id,
-                'worker_name' => $session->user ? $session->user->name : 'Unknown user',
+                'user_id' => $session->user_id ?? $session->user_id_snapshot,
+                'worker_name' => $session->user ? $session->user->name : ($session->user_name_snapshot ?: 'Unknown user'),
                 'task_id' => $session->task_id,
-                'task_name' => $session->task ? $session->task->name : 'Unknown task',
+                'task_name' => $session->task ? $session->task->name : ($session->task_name_snapshot ?: 'Unknown task'),
                 'invoice_id' => $session->invoice_id,
                 'invoice_status' => $session->invoice ? $session->invoice->status : null,
                 'started_at' => $session->started_at ? $session->started_at->toIso8601String() : null,

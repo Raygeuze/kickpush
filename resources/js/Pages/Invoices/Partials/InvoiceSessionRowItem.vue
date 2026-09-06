@@ -22,7 +22,10 @@ defineProps({
                 <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatters.formatSessionHeaderDate(session.started_at || session.created_at) }}</p>
                 <template v-if="!controller.isEditingSessionDetails(session.id)">
                     <div class="mt-1 flex flex-wrap items-center gap-2">
-                        <p class="text-xs text-gray-600 dark:text-gray-300">{{ session.task?.name || 'General' }}<span v-if="session.task?.project"> in {{ session.task.project.name }}</span></p>
+                        <p class="text-xs text-gray-600 dark:text-gray-300">
+                            {{ session.task?.name || session.task_name_snapshot || 'General' }}
+                            <span v-if="session.task?.project?.name || session.project_name_snapshot"> in {{ session.task?.project?.name || session.project_name_snapshot }}</span>
+                        </p>
                         <button
                             v-if="controller.canManageSession(session)"
                             type="button"
@@ -39,7 +42,7 @@ defineProps({
                         </button>
                     </div>
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        Recorded by {{ session.user?.name || 'Unknown user' }}
+                        Recorded by {{ session.user?.name || session.user_name_snapshot || 'Unknown user' }}
                     </p>
                 </template>
 

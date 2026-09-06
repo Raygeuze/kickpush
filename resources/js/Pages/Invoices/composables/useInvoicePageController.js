@@ -154,9 +154,9 @@ export function useInvoicePageController(options) {
         const groups = new Map();
 
         sortedAssignedSessions.value.forEach((session) => {
-            const projectId = session?.task?.project?.id ?? session?.task?.project_id ?? null;
-            const projectName = session?.task?.project?.name || 'Unassigned Project';
-            const key = projectId ? `project-${projectId}` : 'project-unassigned';
+            const projectId = session?.task?.project?.id ?? session?.task?.project_id ?? session?.project_id_snapshot ?? null;
+            const projectName = session?.task?.project?.name || session?.project_name_snapshot || 'Unassigned Project';
+            const key = projectId ? `project-${projectId}` : `project-name-${projectName}`;
 
             if (!groups.has(key)) {
                 groups.set(key, {

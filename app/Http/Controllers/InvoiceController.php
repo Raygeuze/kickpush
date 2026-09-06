@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -335,6 +336,7 @@ class InvoiceController extends Controller
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
+        $this->abortIfInvoiceFinalized($invoice);
 
         $validated = $request->validate([
             'financial_year_id' => 'required|integer|exists:financial_years,id',
@@ -456,7 +458,7 @@ class InvoiceController extends Controller
             'running' => $activeSession->paused_at === null,
             'paused' => $activeSession->paused_at !== null,
             'active' => true,
-            'elapsed_seconds' => $this->calculateElapsedSeconds($activeSession),
+            'elapsed_seconds' => $activeSession->elapsedSeconds(),
             'session' => $activeSession,
         ]);
     }
@@ -502,6 +504,7 @@ class InvoiceController extends Controller
         $startedAt = now();
         $user = Auth::user();
         abort_unless($user instanceof User, 401, 'Authentication required.');
+        $snapshotTask = $taskId ? Task::query()->with('project')->find($taskId) : null;
 
         $session = TimerSession::create(array_merge([
             'user_id' => Auth::id(),
@@ -511,7 +514,7 @@ class InvoiceController extends Controller
             'started_at' => $startedAt,
             'active_started_at' => $startedAt,
             'accumulated_seconds' => 0,
-        ], $this->billingSnapshots->attributes($user, $invoice->client)));
+        ], $this->billingSnapshots->attributes($user, $invoice->client, $snapshotTask)));
 
         return response()->json([
             'message' => 'Timer started for this invoice.',
@@ -639,7 +642,7 @@ class InvoiceController extends Controller
 
         $stoppedAt = now();
         $session->stopped_at = $stoppedAt;
-        $session->duration_seconds = $this->calculateElapsedSeconds($session, $stoppedAt);
+        $session->duration_seconds = $session->elapsedSeconds($stoppedAt);
         $session->active_started_at = null;
         $session->paused_at = null;
         $session->save();
@@ -684,6 +687,7 @@ class InvoiceController extends Controller
 
         $user = Auth::user();
         abort_unless($user instanceof User, 401, 'Authentication required.');
+        $snapshotTask = $taskId ? Task::query()->with('project')->find($taskId) : null;
 
         TimerSession::create(array_merge([
             'user_id' => Auth::id(),
@@ -693,7 +697,7 @@ class InvoiceController extends Controller
             'started_at' => $startedAt,
             'stopped_at' => $stoppedAt,
             'duration_seconds' => $durationSeconds,
-        ], $this->billingSnapshots->attributes($user, $invoice->client)));
+        ], $this->billingSnapshots->attributes($user, $invoice->client, $snapshotTask)));
 
         $freshInvoice = $invoice->fresh();
 
@@ -830,7 +834,7 @@ class InvoiceController extends Controller
             }
         }
 
-        $session->duration_seconds = $this->calculateElapsedSeconds($session, $session->stopped_at);
+        $session->duration_seconds = $session->elapsedSeconds($session->stopped_at);
         $session->save();
 
         $freshInvoice = $invoice->fresh();
@@ -1005,7 +1009,7 @@ class InvoiceController extends Controller
                 $stoppedAt = now();
                 $runningSession->invoice_id = $invoice->id;
                 $runningSession->stopped_at = $stoppedAt;
-                $runningSession->duration_seconds = $this->calculateElapsedSeconds($runningSession, $stoppedAt);
+                $runningSession->duration_seconds = $runningSession->elapsedSeconds($stoppedAt);
                 $runningSession->active_started_at = null;
                 $runningSession->paused_at = null;
                 $runningSession->save();
@@ -1089,13 +1093,26 @@ class InvoiceController extends Controller
             ], 422);
         }
 
-        // Unassign sessions before deleting so historical session data remains intact.
-        $this->applyActorScopeToSessions(TimerSession::query())
-            ->where('invoice_id', $invoice->id)
-            ->update(['invoice_id' => null]);
+        DB::transaction(function () use ($invoice): void {
+            $lockedInvoice = $this->applyActorScope(Invoice::query())
+                ->whereKey($invoice->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        Expense::query()->where('invoice_id', $invoice->id)->delete();
-        $invoice->delete();
+            abort_if(
+                in_array($lockedInvoice->status, ['finalized', 'paid'], true),
+                422,
+                'Finalized or paid invoices cannot be deleted.'
+            );
+
+            // Unassign sessions before deleting so historical session data remains intact.
+            $this->applyActorScopeToSessions(TimerSession::query())
+                ->where('invoice_id', $lockedInvoice->id)
+                ->update(['invoice_id' => null]);
+
+            Expense::query()->where('invoice_id', $lockedInvoice->id)->delete();
+            $lockedInvoice->delete();
+        });
 
         return response()->json([
             'message' => 'Invoice deleted.',
@@ -1318,12 +1335,6 @@ class InvoiceController extends Controller
         $generatedAt = now();
         $dueDate = $freshInvoice->due_at ?: $generatedAt->copy()->addDays(14);
 
-        if (!$freshInvoice->due_at) {
-            $freshInvoice->due_at = $dueDate;
-            $freshInvoice->save();
-            $freshInvoice = $freshInvoice->fresh(['client', 'financialYear']);
-        }
-
         return [
             'invoice' => $freshInvoice,
             'user' => $user,
@@ -1345,22 +1356,35 @@ class InvoiceController extends Controller
             ->where('invoice_id', $invoice->id)
             ->whereNotNull('stopped_at')
             ->with(['task.project'])
-            ->get(['id', 'user_id', 'task_id', 'duration_seconds', 'hourly_rate_snapshot']);
+            ->get([
+                'id',
+                'user_id',
+                'task_id',
+                'duration_seconds',
+                'hourly_rate_snapshot',
+                'project_id_snapshot',
+                'project_name_snapshot',
+            ]);
 
         $userRateMap = $this->userChargeOutRateMapForIds(
             $sessions->pluck('user_id')->filter()->map(fn ($userId): int => (int) $userId)->unique()->values()->all()
         );
 
         $grouped = $sessions->groupBy(function (TimerSession $session): string {
-            $projectId = optional(optional($session->task)->project)->id;
+            $projectId = optional(optional($session->task)->project)->id ?? $session->project_id_snapshot;
+            $projectName = optional(optional($session->task)->project)->name ?? $session->project_name_snapshot;
 
-            return $projectId ? 'project-' . $projectId : 'project-unassigned';
+            return $projectId
+                ? 'project-' . $projectId
+                : ($projectName ? 'project-snapshot-' . md5($projectName) : 'project-unassigned');
         });
 
         return $grouped->map(function ($projectSessions, string $groupKey) use ($clientHourlyRate, $userRateMap): array {
             /** @var TimerSession $first */
             $first = $projectSessions->first();
             $project = optional(optional($first)->task)->project;
+            $projectId = optional($project)->id ?? $first->project_id_snapshot;
+            $projectName = optional($project)->name ?? $first->project_name_snapshot ?? 'Unassigned Project';
             $totalDurationSeconds = (int) $projectSessions->sum(fn (TimerSession $session): int => (int) ($session->duration_seconds ?? 0));
             $billableTimeAmount = 0.0;
 
@@ -1374,8 +1398,8 @@ class InvoiceController extends Controller
 
             return [
                 'project_key' => $groupKey,
-                'project_id' => optional($project)->id,
-                'project_name' => optional($project)->name ?? 'Unassigned Project',
+                'project_id' => $projectId,
+                'project_name' => $projectName,
                 'sessions_count' => (int) $projectSessions->count(),
                 'total_duration_seconds' => $totalDurationSeconds,
                 'billable_time_amount' => $billableTimeAmount,
@@ -1533,25 +1557,6 @@ class InvoiceController extends Controller
             ->where('team_id', $teamId)
             ->orderByDesc('start_year')
             ->get();
-    }
-
-    private function calculateElapsedSeconds(?TimerSession $session, $at = null): int
-    {
-        if (!$session) {
-            return 0;
-        }
-
-        $referenceTime = $at ?? now();
-        $accumulated = (int) ($session->accumulated_seconds ?? 0);
-
-        if ($session->paused_at !== null) {
-            return $accumulated;
-        }
-
-        $activeStartedAt = $session->active_started_at ?? $session->started_at;
-        $elapsedSinceStart = (int) floor($activeStartedAt->diffInSeconds($referenceTime));
-
-        return $accumulated + max(0, $elapsedSinceStart);
     }
 
     private function refreshBillingSnapshotsForInvoice(Invoice $invoice): void
@@ -2478,7 +2483,16 @@ class InvoiceController extends Controller
             ->whereIn('invoice_id', $invoiceIds)
             ->whereNotNull('stopped_at')
             ->with(['task.project'])
-            ->get(['id', 'invoice_id', 'user_id', 'task_id', 'duration_seconds', 'hourly_rate_snapshot']);
+            ->get([
+                'id',
+                'invoice_id',
+                'user_id',
+                'task_id',
+                'duration_seconds',
+                'hourly_rate_snapshot',
+                'project_id_snapshot',
+                'project_name_snapshot',
+            ]);
 
         $userRateMap = $this->userChargeOutRateMapForIds(
             $sessions->pluck('user_id')->filter()->map(fn ($userId): int => (int) $userId)->unique()->values()->all()
@@ -2495,9 +2509,13 @@ class InvoiceController extends Controller
             }
 
             $project = optional(optional($session->task)->project);
-            $projectId = $project->id ? (int) $project->id : null;
-            $projectName = $project->name ?: 'Unassigned Project';
-            $projectKey = $projectId !== null ? 'project-' . $projectId : 'project-unassigned';
+            $projectId = $project->id
+                ? (int) $project->id
+                : ($session->project_id_snapshot ? (int) $session->project_id_snapshot : null);
+            $projectName = $project->name ?: ($session->project_name_snapshot ?: 'Unassigned Project');
+            $projectKey = $projectId !== null
+                ? 'project-' . $projectId
+                : ($session->project_name_snapshot ? 'project-snapshot-' . md5($session->project_name_snapshot) : 'project-unassigned');
             $durationSeconds = max(0, (int) ($session->duration_seconds ?? 0));
 
             if (!array_key_exists($projectKey, $projectTotals)) {
