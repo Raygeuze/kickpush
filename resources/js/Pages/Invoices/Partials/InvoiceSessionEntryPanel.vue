@@ -27,6 +27,7 @@ const emit = defineEmits([
     'update:manualStartedAt',
     'runInlinePrimaryAction',
     'stopInlineTimer',
+    'deleteInlineTimer',
     'createManualSession',
 ]);
 </script>
@@ -81,7 +82,7 @@ const emit = defineEmits([
                 type="button"
                 class="mt-3 rounded-xl px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
                 :class="state.isInlineTimerRunning ? 'bg-amber-600 hover:bg-amber-700' : state.isInlineTimerPaused ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'"
-                :disabled="state.isFinalized || state.isInlineTimerLoading"
+                :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerDeleting"
                 @click="emit('runInlinePrimaryAction')"
             >
                 {{ state.isInlineTimerLoading ? 'Working...' : (state.isInlineTimerRunning ? 'Pause Timer' : state.isInlineTimerPaused ? 'Resume Timer' : 'Start Timer') }}
@@ -91,10 +92,29 @@ const emit = defineEmits([
                 v-if="state.isInlineTimerRunning || state.isInlineTimerPaused"
                 type="button"
                 class="ml-3 mt-3 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
-                :disabled="state.isFinalized || state.isInlineTimerLoading"
+                :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerDeleting"
                 @click="emit('stopInlineTimer')"
             >
                 {{ state.isInlineTimerLoading ? 'Working...' : 'Submit' }}
+            </button>
+
+            <button
+                v-if="state.inlineActiveSessionId"
+                type="button"
+                class="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
+                :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerDeleting"
+                title="Delete timer session"
+                aria-label="Delete timer session"
+                @click="emit('deleteInlineTimer')"
+            >
+                <span v-if="state.isInlineTimerDeleting" class="text-[10px] font-semibold">...</span>
+                <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4h8v2" />
+                    <path d="M19 6l-1 14H6L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                </svg>
             </button>
 
             <p v-if="!state.hasActiveClientTasks" class="mt-2 text-xs text-amber-700 dark:text-amber-300">

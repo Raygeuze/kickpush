@@ -8,6 +8,8 @@ export function useInvoicePageController(options) {
         initialAvailableSessions = [],
         initialExpenses = [],
         initialSummary,
+        currentUserId,
+        canDeleteAnyTimerSession = false,
         formatDuration,
         onInvoiceDeleted,
     } = options;
@@ -29,6 +31,7 @@ export function useInvoicePageController(options) {
     const isSubmittingExpense = ref(false);
     const isSubmittingManualSession = ref(false);
     const isInlineTimerLoading = ref(false);
+    const isInlineTimerDeleting = ref(false);
 
     const busySessionIds = ref([]);
     const busyExpenseIds = ref([]);
@@ -547,6 +550,11 @@ export function useInvoicePageController(options) {
         }
     }
 
+    async function refreshInvoiceDetails() {
+        const response = await axios.get(`/invoices/${invoice.value.id}/details`);
+        applyPayload(response.data);
+    }
+
     async function deleteInvoice() {
         if (isDeletingInvoice.value) {
             return;
@@ -852,7 +860,7 @@ export function useInvoicePageController(options) {
     }
 
     async function startInlineTimer() {
-        if (isFinalized.value || isInlineTimerLoading.value) {
+        if (isFinalized.value || isInlineTimerLoading.value || isInlineTimerDeleting.value) {
             return;
         }
 
@@ -883,7 +891,7 @@ export function useInvoicePageController(options) {
     }
 
     async function pauseInlineTimer() {
-        if (isFinalized.value || isInlineTimerLoading.value) {
+        if (isFinalized.value || isInlineTimerLoading.value || isInlineTimerDeleting.value) {
             return;
         }
 
@@ -906,7 +914,7 @@ export function useInvoicePageController(options) {
     }
 
     async function resumeInlineTimer() {
-        if (isFinalized.value || isInlineTimerLoading.value) {
+        if (isFinalized.value || isInlineTimerLoading.value || isInlineTimerDeleting.value) {
             return;
         }
 
@@ -924,7 +932,7 @@ export function useInvoicePageController(options) {
     }
 
     async function stopInlineTimer() {
-        if (isFinalized.value || isInlineTimerLoading.value) {
+        if (isFinalized.value || isInlineTimerLoading.value || isInlineTimerDeleting.value) {
             return;
         }
 
@@ -947,6 +955,38 @@ export function useInvoicePageController(options) {
         }
     }
 
+    async function deleteInlineTimer() {
+        const sessionId = inlineActiveSessionId.value;
+
+        if (
+            isFinalized.value
+            || isInlineTimerLoading.value
+            || isInlineTimerDeleting.value
+            || !sessionId
+            || !window.confirm(`Delete timer session #${sessionId}? This cannot be undone.`)
+        ) {
+            return;
+        }
+
+        isInlineTimerDeleting.value = true;
+
+        try {
+            const response = await axios.delete(`/timer/${sessionId}`);
+
+            isInlineTimerRunning.value = false;
+            isInlineTimerPaused.value = false;
+            inlineActiveSessionId.value = null;
+            inlineElapsedSeconds.value = 0;
+            stopInlineTicker();
+            await refreshInvoiceDetails();
+            statusMessage.value = response.data.message || 'Timer session deleted.';
+        } catch (error) {
+            statusMessage.value = error?.response?.data?.message || 'Failed to delete timer session.';
+        } finally {
+            isInlineTimerDeleting.value = false;
+        }
+    }
+
     function runInlinePrimaryAction() {
         if (isInlineTimerRunning.value) {
             pauseInlineTimer();
@@ -961,20 +1001,28 @@ export function useInvoicePageController(options) {
         startInlineTimer();
     }
 
-    async function removeSession(sessionId) {
+    function canDeleteSession(session) {
+        return canDeleteAnyTimerSession || Number(session?.user_id) === Number(currentUserId);
+    }
+
+    async function deleteSession(sessionId) {
         if (isFinalized.value || isBusy(sessionId)) {
+            return;
+        }
+
+        if (!window.confirm(`Delete timer session #${sessionId}? This cannot be undone.`)) {
             return;
         }
 
         busySessionIds.value.push(sessionId);
 
         try {
-            const response = await axios.delete(`/invoices/${invoice.value.id}/sessions/${sessionId}`);
+            const response = await axios.delete(`/timer/${sessionId}`);
 
-            applyPayload(response.data);
-            statusMessage.value = response.data.message || 'Session removed from invoice.';
+            await refreshInvoiceDetails();
+            statusMessage.value = response.data.message || 'Timer session deleted.';
         } catch (error) {
-            statusMessage.value = error?.response?.data?.message || 'Failed to remove session from invoice.';
+            statusMessage.value = error?.response?.data?.message || 'Failed to delete timer session.';
         } finally {
             busySessionIds.value = busySessionIds.value.filter((id) => id !== sessionId);
         }
@@ -1207,6 +1255,7 @@ export function useInvoicePageController(options) {
         isSubmittingExpense,
         isSubmittingManualSession,
         isInlineTimerLoading,
+        isInlineTimerDeleting,
 
         discountType,
         discountValue,
@@ -1275,9 +1324,11 @@ export function useInvoicePageController(options) {
         createManualSession,
         runInlinePrimaryAction,
         stopInlineTimer,
+        deleteInlineTimer,
         resumeStoppedSession,
         submitResumedSession,
-        removeSession,
+        canDeleteSession,
+        deleteSession,
         startEditingSessionDetails,
         cancelEditingSessionDetails,
         saveSessionDetails,

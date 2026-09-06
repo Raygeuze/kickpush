@@ -185,13 +185,14 @@ defineProps({
                 </button>
 
                 <button
+                    v-if="controller.canDeleteSession(session)"
                     type="button"
                     class="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition disabled:opacity-60"
                     :class="controller.isFinalized ? 'cursor-not-allowed bg-gray-500' : 'bg-red-600 hover:bg-red-700'"
                     :disabled="controller.isFinalized || controller.isBusy(session.id)"
-                    title="Remove session"
-                    aria-label="Remove session"
-                    @click="controller.removeSession(session.id)"
+                    title="Delete timer session"
+                    aria-label="Delete timer session"
+                    @click="controller.deleteSession(session.id)"
                 >
                     <span v-if="controller.isBusy(session.id)" class="text-[10px] font-semibold">...</span>
                     <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

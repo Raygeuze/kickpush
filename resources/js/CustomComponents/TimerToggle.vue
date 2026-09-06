@@ -8,6 +8,7 @@ const activeSessionId = ref(null);
 const statusMessage = ref('');
 const isLoading = ref(false);
 const isSubmittingSession = ref(false);
+const isDeletingSession = ref(false);
 const historySessions = ref([]);
 const clients = ref([]);
 const selectedProjectId = ref('');
@@ -356,6 +357,34 @@ async function submitSessionToInvoice() {
     }
 }
 
+async function deleteSession() {
+    const sessionId = activeSessionId.value ?? pendingSessionId.value;
+
+    if (!sessionId || !window.confirm(`Delete timer session #${sessionId}? This cannot be undone.`)) {
+        return;
+    }
+
+    isDeletingSession.value = true;
+
+    try {
+        const response = await axios.delete(`/timer/${sessionId}`);
+
+        stopLocalTicker();
+        isRunning.value = false;
+        isPaused.value = false;
+        elapsedSeconds.value = 0;
+        activeSessionId.value = null;
+        pendingSessionId.value = null;
+        lastConfirmedInvoiceId.value = null;
+        statusMessage.value = response.data.message || 'Timer session deleted.';
+        await loadHistory();
+    } catch (error) {
+        statusMessage.value = error?.response?.data?.message || 'Failed to delete timer session.';
+    } finally {
+        isDeletingSession.value = false;
+    }
+}
+
 function runPrimaryTimerAction() {
     if (isRunning.value) {
         pauseTimer();
@@ -488,20 +517,39 @@ onBeforeUnmount(() => {
                 type="button"
                 class="px-6 py-3 rounded-xl text-white font-semibold transition disabled:opacity-60"
                 :class="isRunning ? 'bg-amber-600 hover:bg-amber-700' : isPaused ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'"
-                :disabled="isLoading || (!isRunning && !isPaused && (!selectedProjectId || !selectedTaskId))"
+                :disabled="isLoading || isDeletingSession || (!isRunning && !isPaused && (!selectedProjectId || !selectedTaskId))"
                 @click="runPrimaryTimerAction"
             >
-                {{ isRunning ? 'Pause Timer' : isPaused ? 'Resume Timer' : 'Start Timer' }}
+                {{ isRunning ? 'Pause Timer' : isPaused ? 'Resume' : 'Start Timer' }}
             </button>
 
             <button
                 v-if="isRunning || isPaused"
                 type="button"
-                class="px-5 py-3 rounded-xl text-white font-semibold bg-red-600 hover:bg-red-700 transition disabled:opacity-60"
-                :disabled="isLoading"
+                class="px-5 py-3 rounded-xl text-white font-semibold bg-gray-700 hover:bg-gray-800 transition disabled:opacity-60 dark:bg-gray-600 dark:hover:bg-gray-500"
+                :disabled="isLoading || isDeletingSession"
                 @click="stopTimer"
             >
-                Stop Timer
+                Stop
+            </button>
+
+            <button
+                v-if="activeSessionId"
+                type="button"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
+                :disabled="isLoading || isDeletingSession"
+                title="Delete timer session"
+                aria-label="Delete timer session"
+                @click="deleteSession"
+            >
+                <span v-if="isDeletingSession" class="text-[10px] font-semibold">...</span>
+                <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4h8v2" />
+                    <path d="M19 6l-1 14H6L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                </svg>
             </button>
 
             <span class="text-sm text-gray-600 dark:text-gray-300">
@@ -517,14 +565,33 @@ onBeforeUnmount(() => {
         </p>
 
         <div v-if="pendingSessionId" class="mt-5">
-            <button
-                type="button"
-                class="px-5 py-2.5 rounded-xl text-white font-semibold bg-blue-600 hover:bg-blue-700 transition disabled:opacity-60"
-                :disabled="isSubmittingSession"
-                @click="submitSessionToInvoice"
-            >
-                {{ isSubmittingSession ? 'Confirming...' : 'Confirm Session' }}
-            </button>
+            <div class="flex items-center gap-3">
+                <button
+                    type="button"
+                    class="px-5 py-2.5 rounded-xl text-white font-semibold bg-blue-600 hover:bg-blue-700 transition disabled:opacity-60"
+                    :disabled="isSubmittingSession || isDeletingSession"
+                    @click="submitSessionToInvoice"
+                >
+                    {{ isSubmittingSession ? 'Submitting...' : 'Submit Session' }}
+                </button>
+                <button
+                    type="button"
+                    class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
+                    :disabled="isSubmittingSession || isDeletingSession"
+                    title="Delete timer session"
+                    aria-label="Delete timer session"
+                    @click="deleteSession"
+                >
+                    <span v-if="isDeletingSession" class="text-[10px] font-semibold">...</span>
+                    <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                    </svg>
+                </button>
+            </div>
             <p class="mt-2 text-xs text-gray-600 dark:text-gray-300">
                 Session #{{ pendingSessionId }} is ready for confirmation.
                 <span v-if="lastConfirmedInvoiceId">Last confirmed invoice: {{ formatInvoiceId(lastConfirmedInvoiceId) }}.</span>

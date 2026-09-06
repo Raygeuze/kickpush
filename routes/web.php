@@ -91,6 +91,7 @@ Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
     Route::post('/timer/pause', [TimerSessionController::class, 'pause'])->name('timer.pause');
     Route::post('/timer/resume', [TimerSessionController::class, 'resume'])->name('timer.resume');
     Route::post('/timer/stop', [TimerSessionController::class, 'stop'])->name('timer.stop');
+    Route::delete('/timer/{sessionId}', [TimerSessionController::class, 'destroy'])->name('timer.destroy');
     Route::post('/timer/submit-to-invoice', [TimerSessionController::class, 'submitToInvoice'])->name('timer.submitToInvoice');
 });
 

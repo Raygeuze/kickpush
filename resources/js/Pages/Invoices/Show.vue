@@ -12,6 +12,11 @@ import { useInvoicePageController } from '@/Pages/Invoices/composables/useInvoic
 
 const page = usePage();
 const canManageNonTimerRecords = computed(() => page.props.auth?.user?.current_team?.can_manage_non_timer_records !== false);
+const canDeleteAnyTimerSession = computed(() => {
+    const currentTeam = page.props.auth?.user?.current_team;
+
+    return currentTeam?.is_owner === true || currentTeam?.role === 'admin';
+});
 
 const props = defineProps({
     invoice: {
@@ -111,6 +116,7 @@ const {
     isSubmittingExpense,
     isSubmittingManualSession,
     isInlineTimerLoading,
+    isInlineTimerDeleting,
     discountType,
     discountValue,
     manualDurationMinutes,
@@ -166,9 +172,11 @@ const {
     createManualSession,
     runInlinePrimaryAction,
     stopInlineTimer,
+    deleteInlineTimer,
     resumeStoppedSession,
     submitResumedSession,
-    removeSession,
+    canDeleteSession,
+    deleteSession,
     startEditingSessionDetails,
     cancelEditingSessionDetails,
     saveSessionDetails,
@@ -182,6 +190,8 @@ const {
     initialAvailableSessions: props.availableSessions,
     initialExpenses: props.expenses,
     initialSummary: props.summary,
+    currentUserId: page.props.auth?.user?.id,
+    canDeleteAnyTimerSession: canDeleteAnyTimerSession.value,
     formatDuration,
     onInvoiceDeleted: () => router.visit(route('invoices.index')),
 });
@@ -205,6 +215,7 @@ function formatCurrency(amount) {
 const sessionEntryState = computed(() => ({
     isFinalized: isFinalized.value,
     isInlineTimerLoading: isInlineTimerLoading.value,
+    isInlineTimerDeleting: isInlineTimerDeleting.value,
     isInlineTimerRunning: isInlineTimerRunning.value,
     isInlineTimerPaused: isInlineTimerPaused.value,
     inlineElapsedSeconds: inlineElapsedSeconds.value,
@@ -256,7 +267,8 @@ const sessionGroupsController = computed(() => ({
     setSessionDurationDraft,
     resumeStoppedSession,
     submitResumedSession,
-    removeSession,
+    canDeleteSession,
+    deleteSession,
 }));
 
 const sessionFormatters = {
@@ -331,6 +343,7 @@ const sessionFormatters = {
                         @update:manual-started-at="manualStartedAt = $event"
                         @run-inline-primary-action="runInlinePrimaryAction"
                         @stop-inline-timer="stopInlineTimer"
+                        @delete-inline-timer="deleteInlineTimer"
                         @create-manual-session="createManualSession"
                     />
 

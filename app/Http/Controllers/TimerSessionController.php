@@ -7,6 +7,7 @@ use App\Models\FinancialYear;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimerSession;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -217,6 +218,51 @@ class TimerSessionController extends Controller
         return response()->json([
             'message' => 'Timer stopped.',
             'session' => $session,
+        ]);
+    }
+
+    public function destroy(int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $user = Auth::user();
+        abort_unless($user instanceof User, 401, 'Authentication required.');
+        $this->currentTeamIdOrFail();
+        $team = $user->currentTeam;
+        $canDeleteAnyTeamSession = (int) $team->user_id === (int) $user->id
+            || DB::table('team_user')
+                ->where('team_id', $team->id)
+                ->where('user_id', $user->id)
+                ->where('role', 'admin')
+                ->exists();
+
+        $sessionQuery = $this->applyTeamScope(TimerSession::query());
+
+        if (!$canDeleteAnyTeamSession) {
+            $sessionQuery->where('user_id', $user->id);
+        }
+
+        $session = $sessionQuery
+            ->with('invoice')
+            ->whereKey($sessionId)
+            ->first();
+
+        if (!$session) {
+            return response()->json([
+                'message' => 'Timer session not found for this user.',
+            ], 404);
+        }
+
+        if ($session->invoice && in_array($session->invoice->status, ['finalized', 'paid'], true)) {
+            return response()->json([
+                'message' => 'Sessions on finalized or paid invoices cannot be deleted.',
+            ], 422);
+        }
+
+        $session->delete();
+
+        return response()->json([
+            'message' => 'Timer session deleted.',
         ]);
     }
 
