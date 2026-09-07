@@ -3,12 +3,16 @@
 namespace App\Services;
 
 use App\Models\Client;
+use App\Models\FinancialYear;
 use App\Models\Invoice;
 use App\Models\Task;
 use App\Models\TimerSession;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class TimerSessionService
 {
@@ -111,29 +115,6 @@ class TimerSessionService
         return $session;
     }
 
-    public function pause(TimerSession $session, ?CarbonInterface $at = null): TimerSession
-    {
-        $pausedAt = $at ?: now();
-        $activeStartedAt = $session->active_started_at ?? $session->started_at;
-        $elapsedSinceStart = (int) floor($activeStartedAt->diffInSeconds($pausedAt));
-
-        $session->accumulated_seconds = (int) ($session->accumulated_seconds ?? 0) + max(0, $elapsedSinceStart);
-        $session->active_started_at = null;
-        $session->paused_at = $pausedAt;
-        $session->save();
-
-        return $session;
-    }
-
-    public function resume(TimerSession $session): TimerSession
-    {
-        $session->active_started_at = now();
-        $session->paused_at = null;
-        $session->save();
-
-        return $session;
-    }
-
     public function stop(TimerSession $session): TimerSession
     {
         $stoppedAt = now();
@@ -178,6 +159,84 @@ class TimerSessionService
         $session->save();
 
         return $session;
+    }
+
+    /**
+     * Attaches the session to the latest draft invoice for its client, creating one when none exists.
+     * Returns null when the session has no resolvable client.
+     */
+    public function assignToLatestDraftInvoice(TimerSession $session, int $teamId, int $userId): ?Invoice
+    {
+        $session->loadMissing('task.project');
+        $clientId = optional(optional($session->task)->project)->client_id;
+
+        if ($clientId === null) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($session, $teamId, $userId, $clientId): Invoice {
+            $draftInvoice = Invoice::query()
+                ->where('team_id', $teamId)
+                ->where('client_id', (int) $clientId)
+                ->where('status', 'draft')
+                ->latest('created_at')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$draftInvoice) {
+                $draftInvoice = $this->createDraftInvoiceForClient($userId, $teamId, (int) $clientId);
+            }
+
+            $this->attachToInvoice($session, $draftInvoice);
+
+            return $draftInvoice;
+        });
+    }
+
+    public function createDraftInvoiceForClient(int $userId, int $teamId, int $clientId): Invoice
+    {
+        $financialYear = $this->findOrCreateFinancialYearForTeam($userId, $teamId, $this->defaultNzFinancialYearStart());
+
+        $invoice = Invoice::create([
+            'user_id' => $userId,
+            'team_id' => $teamId,
+            'client_id' => $clientId,
+            'financial_year_id' => $financialYear->id,
+            'invoice_number' => 'TMP-'.(string) Str::uuid(),
+            'status' => 'draft',
+        ]);
+
+        $invoice->invoice_number = (string) $invoice->id;
+        $invoice->save();
+
+        return $invoice;
+    }
+
+    private function defaultNzFinancialYearStart(): int
+    {
+        $nowNz = CarbonImmutable::now('Pacific/Auckland');
+
+        return $nowNz->month >= 4 ? $nowNz->year : $nowNz->subYear()->year;
+    }
+
+    private function findOrCreateFinancialYearForTeam(int $userId, int $teamId, int $startYear): FinancialYear
+    {
+        $start = CarbonImmutable::create($startYear, 4, 1, 0, 0, 0, 'Pacific/Auckland');
+        $end = $start->addYear()->subDay();
+
+        return FinancialYear::query()->firstOrCreate(
+            [
+                'team_id' => $teamId,
+                'start_year' => $startYear,
+            ],
+            [
+                'user_id' => $userId,
+                'end_year' => $startYear + 1,
+                'label' => $startYear.'/'.($startYear + 1),
+                'start_date' => $start->toDateString(),
+                'end_date' => $end->toDateString(),
+            ]
+        );
     }
 
     public function findActiveSessionForUser(int $userId, int $teamId): ?TimerSession

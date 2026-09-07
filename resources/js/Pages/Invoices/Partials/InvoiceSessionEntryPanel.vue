@@ -44,7 +44,7 @@ const emit = defineEmits([
                 <select
                     :value="state.selectedInlineProjectId"
                     class="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                    :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerRunning || state.isInlineTimerPaused || !state.clientProjects.length"
+                    :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerRunning || state.isInlineTimerActive || !state.clientProjects.length"
                     @change="emit('update:selectedInlineProjectId', $event.target.value)"
                 >
                     <option value="">Select project</option>
@@ -62,7 +62,7 @@ const emit = defineEmits([
                 <select
                     :value="state.selectedInlineTaskId"
                     class="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                    :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerRunning || state.isInlineTimerPaused || !state.selectedInlineProjectId"
+                    :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerRunning || state.isInlineTimerActive || !state.selectedInlineProjectId"
                     @change="emit('update:selectedInlineTaskId', $event.target.value)"
                 >
                     <option value="">Use project default task</option>
@@ -81,21 +81,11 @@ const emit = defineEmits([
             <button
                 type="button"
                 class="mt-3 rounded-xl px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
-                :class="state.isInlineTimerRunning ? 'bg-amber-600 hover:bg-amber-700' : state.isInlineTimerPaused ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'"
+                :class="state.isInlineTimerActive ? 'bg-gray-700 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500' : 'bg-green-600 hover:bg-green-700'"
                 :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerDeleting"
                 @click="emit('runInlinePrimaryAction')"
             >
-                {{ state.isInlineTimerLoading ? 'Working...' : (state.isInlineTimerRunning ? 'Pause Timer' : state.isInlineTimerPaused ? 'Resume Timer' : 'Start Timer') }}
-            </button>
-
-            <button
-                v-if="state.isInlineTimerRunning || state.isInlineTimerPaused"
-                type="button"
-                class="ml-3 mt-3 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
-                :disabled="state.isFinalized || state.isInlineTimerLoading || state.isInlineTimerDeleting"
-                @click="emit('stopInlineTimer')"
-            >
-                {{ state.isInlineTimerLoading ? 'Working...' : 'Submit' }}
+                {{ state.isInlineTimerLoading ? 'Working...' : (state.isInlineTimerActive ? 'Stop Timer' : 'Start Timer') }}
             </button>
 
             <button
@@ -122,7 +112,7 @@ const emit = defineEmits([
             </p>
 
             <p class="mt-2 text-xs text-gray-600 dark:text-gray-300">
-                {{ state.isInlineTimerRunning ? 'Recording in progress' : state.isInlineTimerPaused ? 'Paused' : 'Not recording' }}
+                {{ state.isInlineTimerRunning ? 'Recording in progress' : state.isInlineTimerActive ? 'Session open' : 'Not recording' }}
             </p>
         </div>
 

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const isRunning = ref(false);
-const isPaused = ref(false);
+const isActive = ref(false);
 const elapsedSeconds = ref(0);
 const activeSessionId = ref(null);
 const statusMessage = ref('');
@@ -153,7 +153,7 @@ function formatInvoiceId(invoiceId) {
 }
 
 function getSessionDuration(session) {
-    if (session.id === activeSessionId.value && (isRunning.value || isPaused.value)) {
+    if (session.id === activeSessionId.value && isActive.value) {
         return formattedElapsed.value;
     }
 
@@ -225,7 +225,7 @@ async function loadStatus() {
 
             activeSessionId.value = session.id;
             isRunning.value = Boolean(response.data.running);
-            isPaused.value = Boolean(response.data.paused);
+            isActive.value = true;
 
             if (isRunning.value) {
                 setRunningBaseline(response.data.elapsed_seconds);
@@ -234,13 +234,13 @@ async function loadStatus() {
             } else {
                 elapsedSeconds.value = Math.max(0, Number(response.data.elapsed_seconds || 0));
                 stopLocalTicker();
-                statusMessage.value = 'Timer is paused.';
+                statusMessage.value = 'Timer session is open. Stop it to record the time.';
             }
             return;
         }
 
         isRunning.value = false;
-        isPaused.value = false;
+        isActive.value = false;
         activeSessionId.value = null;
         elapsedSeconds.value = 0;
         stopLocalTicker();
@@ -279,40 +279,6 @@ async function startTimer() {
     }
 }
 
-async function pauseTimer() {
-    isLoading.value = true;
-
-    try {
-        const response = await axios.post('/timer/pause');
-
-        isRunning.value = false;
-        isPaused.value = true;
-        stopLocalTicker();
-        elapsedSeconds.value = Math.max(0, Number(response.data.session?.accumulated_seconds || elapsedSeconds.value));
-        activeSessionId.value = response.data.session?.id ?? activeSessionId.value;
-        statusMessage.value = response.data.message;
-    } catch (error) {
-        statusMessage.value = error?.response?.data?.message || 'Failed to pause timer.';
-    } finally {
-        isLoading.value = false;
-    }
-}
-
-async function resumeTimer() {
-    isLoading.value = true;
-
-    try {
-        const response = await axios.post('/timer/resume');
-
-        statusMessage.value = response.data.message;
-        await loadStatus();
-    } catch (error) {
-        statusMessage.value = error?.response?.data?.message || 'Failed to resume timer.';
-    } finally {
-        isLoading.value = false;
-    }
-}
-
 async function stopTimer() {
     isLoading.value = true;
 
@@ -320,7 +286,7 @@ async function stopTimer() {
         const response = await axios.post('/timer/stop');
 
         isRunning.value = false;
-        isPaused.value = false;
+        isActive.value = false;
         stopLocalTicker();
         elapsedSeconds.value = 0;
         statusMessage.value = `${response.data.message} Duration saved to database.`;
@@ -371,7 +337,7 @@ async function deleteSession() {
 
         stopLocalTicker();
         isRunning.value = false;
-        isPaused.value = false;
+        isActive.value = false;
         elapsedSeconds.value = 0;
         activeSessionId.value = null;
         pendingSessionId.value = null;
@@ -386,13 +352,8 @@ async function deleteSession() {
 }
 
 function runPrimaryTimerAction() {
-    if (isRunning.value) {
-        pauseTimer();
-        return;
-    }
-
-    if (isPaused.value) {
-        resumeTimer();
+    if (isActive.value) {
+        stopTimer();
         return;
     }
 
@@ -462,7 +423,7 @@ onBeforeUnmount(() => {
                     <select
                         v-model="selectedProjectId"
                         class="mt-1 w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                        :disabled="isRunning || isPaused"
+                        :disabled="isRunning || isActive"
                     >
                         <option value="">Select project</option>
                         <optgroup
@@ -485,7 +446,7 @@ onBeforeUnmount(() => {
                     <select
                         v-model="selectedTaskId"
                         class="mt-1 w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                        :disabled="!selectedProjectId || isRunning || isPaused"
+                        :disabled="!selectedProjectId || isRunning || isActive"
                     >
                         <option value="">Select task</option>
                         <option
@@ -516,21 +477,11 @@ onBeforeUnmount(() => {
             <button
                 type="button"
                 class="px-6 py-3 rounded-xl text-white font-semibold transition disabled:opacity-60"
-                :class="isRunning ? 'bg-amber-600 hover:bg-amber-700' : isPaused ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'"
-                :disabled="isLoading || isDeletingSession || (!isRunning && !isPaused && (!selectedProjectId || !selectedTaskId))"
+                :class="isActive ? 'bg-gray-700 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500' : 'bg-green-600 hover:bg-green-700'"
+                :disabled="isLoading || isDeletingSession || (!isActive && (!selectedProjectId || !selectedTaskId))"
                 @click="runPrimaryTimerAction"
             >
-                {{ isRunning ? 'Pause Timer' : isPaused ? 'Resume' : 'Start Timer' }}
-            </button>
-
-            <button
-                v-if="isRunning || isPaused"
-                type="button"
-                class="px-5 py-3 rounded-xl text-white font-semibold bg-gray-700 hover:bg-gray-800 transition disabled:opacity-60 dark:bg-gray-600 dark:hover:bg-gray-500"
-                :disabled="isLoading || isDeletingSession"
-                @click="stopTimer"
-            >
-                Stop
+                {{ isActive ? 'Stop Timer' : 'Start Timer' }}
             </button>
 
             <button
@@ -553,7 +504,7 @@ onBeforeUnmount(() => {
             </button>
 
             <span class="text-sm text-gray-600 dark:text-gray-300">
-                {{ isRunning ? 'Recording in progress' : isPaused ? 'Paused' : 'Not recording' }}
+                {{ isRunning ? 'Recording in progress' : isActive ? 'Session open' : 'Not recording' }}
             </span>
         </div>
 

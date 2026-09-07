@@ -45,7 +45,7 @@ export function useInvoicePageController(options) {
     const editingSessionDetailsId = ref(null);
 
     const isInlineTimerRunning = ref(false);
-    const isInlineTimerPaused = ref(false);
+    const isInlineTimerActive = ref(false);
     const inlineElapsedSeconds = ref(0);
     const inlineActiveSessionId = ref(null);
 
@@ -833,7 +833,7 @@ export function useInvoicePageController(options) {
                 inlineActiveSessionId.value = response.data.session.id;
                 selectedInlineTaskId.value = response.data.session?.task_id ? String(response.data.session.task_id) : selectedInlineTaskId.value;
                 isInlineTimerRunning.value = Boolean(response.data.running);
-                isInlineTimerPaused.value = Boolean(response.data.paused);
+                isInlineTimerActive.value = true;
 
                 if (isInlineTimerRunning.value) {
                     setInlineRunningBaseline(response.data.elapsed_seconds);
@@ -846,7 +846,7 @@ export function useInvoicePageController(options) {
             }
 
             isInlineTimerRunning.value = false;
-            isInlineTimerPaused.value = false;
+            isInlineTimerActive.value = false;
             inlineActiveSessionId.value = null;
             inlineElapsedSeconds.value = 0;
             stopInlineTicker();
@@ -890,47 +890,6 @@ export function useInvoicePageController(options) {
         }
     }
 
-    async function pauseInlineTimer() {
-        if (isFinalized.value || isInlineTimerLoading.value || isInlineTimerDeleting.value) {
-            return;
-        }
-
-        isInlineTimerLoading.value = true;
-
-        try {
-            const response = await axios.post(`/invoices/${invoice.value.id}/timer/pause`);
-
-            isInlineTimerRunning.value = false;
-            isInlineTimerPaused.value = true;
-            inlineActiveSessionId.value = response.data.session?.id ?? inlineActiveSessionId.value;
-            inlineElapsedSeconds.value = Math.max(0, Number(response.data.session?.accumulated_seconds || inlineElapsedSeconds.value));
-            stopInlineTicker();
-            statusMessage.value = response.data.message || 'Timer paused for this invoice.';
-        } catch (error) {
-            statusMessage.value = error?.response?.data?.message || 'Failed to pause inline timer.';
-        } finally {
-            isInlineTimerLoading.value = false;
-        }
-    }
-
-    async function resumeInlineTimer() {
-        if (isFinalized.value || isInlineTimerLoading.value || isInlineTimerDeleting.value) {
-            return;
-        }
-
-        isInlineTimerLoading.value = true;
-
-        try {
-            const response = await axios.post(`/invoices/${invoice.value.id}/timer/resume`);
-            await loadInlineTimerStatus();
-            statusMessage.value = response.data.message || 'Timer resumed for this invoice.';
-        } catch (error) {
-            statusMessage.value = error?.response?.data?.message || 'Failed to resume inline timer.';
-        } finally {
-            isInlineTimerLoading.value = false;
-        }
-    }
-
     async function stopInlineTimer() {
         if (isFinalized.value || isInlineTimerLoading.value || isInlineTimerDeleting.value) {
             return;
@@ -943,7 +902,7 @@ export function useInvoicePageController(options) {
 
             applyPayload(response.data);
             isInlineTimerRunning.value = false;
-            isInlineTimerPaused.value = false;
+            isInlineTimerActive.value = false;
             inlineActiveSessionId.value = null;
             inlineElapsedSeconds.value = 0;
             stopInlineTicker();
@@ -974,7 +933,7 @@ export function useInvoicePageController(options) {
             const response = await axios.delete(`/timer/${sessionId}`);
 
             isInlineTimerRunning.value = false;
-            isInlineTimerPaused.value = false;
+            isInlineTimerActive.value = false;
             inlineActiveSessionId.value = null;
             inlineElapsedSeconds.value = 0;
             stopInlineTicker();
@@ -988,13 +947,8 @@ export function useInvoicePageController(options) {
     }
 
     function runInlinePrimaryAction() {
-        if (isInlineTimerRunning.value) {
-            pauseInlineTimer();
-            return;
-        }
-
-        if (isInlineTimerPaused.value) {
-            resumeInlineTimer();
+        if (isInlineTimerActive.value) {
+            stopInlineTimer();
             return;
         }
 
@@ -1087,7 +1041,7 @@ export function useInvoicePageController(options) {
 
             applyPayload(response.data);
             isInlineTimerRunning.value = false;
-            isInlineTimerPaused.value = false;
+            isInlineTimerActive.value = false;
             inlineActiveSessionId.value = null;
             inlineElapsedSeconds.value = 0;
             stopInlineTicker();
@@ -1278,7 +1232,7 @@ export function useInvoicePageController(options) {
         inlineElapsedSeconds,
         inlineActiveSessionId,
         isInlineTimerRunning,
-        isInlineTimerPaused,
+        isInlineTimerActive,
 
         expenseName,
         expenseDescription,

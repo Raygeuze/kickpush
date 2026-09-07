@@ -21,7 +21,7 @@ class TimerSessionStartDateTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_pause_and_resume_preserve_the_original_start_date_and_exclude_the_paused_gap(): void
+    public function test_stop_and_restart_preserve_the_original_start_date_and_exclude_the_stopped_gap(): void
     {
         $user = User::factory()->withPersonalTeam()->create();
         $originalStart = CarbonImmutable::parse('2026-09-07 23:30:00', 'UTC');
@@ -31,18 +31,19 @@ class TimerSessionStartDateTest extends TestCase
         ]);
 
         Carbon::setTestNow('2026-09-07 23:45:00');
-        $this->actingAs($user)->postJson(route('timer.pause'))->assertOk();
+        $this->actingAs($user)->postJson(route('timer.stop'))->assertOk();
 
         $session->refresh();
         $this->assertTrue($session->started_at->equalTo($originalStart));
         $this->assertNull($session->active_started_at);
-        $this->assertSame(900, $session->accumulated_seconds);
+        $this->assertSame(900, $session->duration_seconds);
 
         Carbon::setTestNow('2026-09-08 09:00:00');
-        $this->postJson(route('timer.resume'))->assertOk();
+        $this->postJson(route('timer.sessions.restart', $session->id))->assertOk();
 
         $session->refresh();
         $this->assertTrue($session->started_at->equalTo($originalStart));
+        $this->assertSame(900, $session->accumulated_seconds);
         $this->assertSame('2026-09-08 09:00:00', $session->active_started_at->format('Y-m-d H:i:s'));
 
         Carbon::setTestNow('2026-09-08 09:30:00');
@@ -64,10 +65,10 @@ class TimerSessionStartDateTest extends TestCase
         ]);
 
         Carbon::setTestNow('2026-09-07 10:20:00');
-        $this->actingAs($user)->postJson(route('timer.pause'))->assertOk();
+        $this->actingAs($user)->postJson(route('timer.stop'))->assertOk();
 
         $session->refresh();
-        $this->assertSame(1200, $session->accumulated_seconds);
+        $this->assertSame(1200, $session->duration_seconds);
         $this->assertTrue($session->started_at->equalTo($originalStart));
     }
 

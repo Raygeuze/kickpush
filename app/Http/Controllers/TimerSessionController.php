@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
-use App\Models\FinancialYear;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimerSession;
@@ -19,7 +18,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class TimerSessionController extends Controller
 {
@@ -131,7 +129,7 @@ class TimerSessionController extends Controller
 
         if ($existing) {
             return response()->json([
-                'message' => $existing->paused_at ? 'Timer is paused. Resume it to continue.' : 'Timer already running.',
+                'message' => 'A timer is already running. Stop it before starting another.',
                 'session' => $existing,
             ], 409);
         }
@@ -170,77 +168,6 @@ class TimerSessionController extends Controller
             'message' => 'Timer started.',
             'session' => $session,
         ], 201);
-    }
-
-    public function pause(Request $request): JsonResponse
-    {
-        abort_unless(Auth::check(), 401, 'Authentication required.');
-
-        $session = $this->findRunningSession();
-
-        if (!$session) {
-            $pausedSession = $this->findPausedSession();
-
-            if ($pausedSession) {
-                return response()->json([
-                    'message' => 'Timer is already paused.',
-                    'session' => $pausedSession,
-                ], 200);
-            }
-
-            return response()->json([
-                'message' => 'No running timer found.',
-            ], 404);
-        }
-
-        Gate::authorize('operate', $session);
-
-        $pausedAt = now();
-        $activeStartedAt = $session->active_started_at ?? $session->started_at;
-        $elapsedSinceStart = (int) floor($activeStartedAt->diffInSeconds($pausedAt));
-        $session->accumulated_seconds = (int) ($session->accumulated_seconds ?? 0)
-            + max(0, $elapsedSinceStart);
-        $session->active_started_at = null;
-        $session->paused_at = $pausedAt;
-        $session->save();
-
-        return response()->json([
-            'message' => 'Timer paused.',
-            'session' => $session,
-        ]);
-    }
-
-    public function resume(Request $request): JsonResponse
-    {
-        abort_unless(Auth::check(), 401, 'Authentication required.');
-
-        $session = $this->findPausedSession();
-
-        if (!$session) {
-            $runningSession = $this->findRunningSession();
-
-            if ($runningSession) {
-                return response()->json([
-                    'message' => 'Timer is already running.',
-                    'session' => $runningSession,
-                ], 200);
-            }
-
-            return response()->json([
-                'message' => 'No paused timer found.',
-            ], 404);
-        }
-
-        Gate::authorize('operate', $session);
-
-        $session->active_started_at = now();
-        $session->paused_at = null;
-        $session->save();
-
-        return response()->json([
-            'message' => 'Timer resumed.',
-            'session' => $session,
-        ]);
     }
 
     public function stop(Request $request): JsonResponse
@@ -433,9 +360,7 @@ class TimerSessionController extends Controller
 
         if ($existing) {
             return response()->json([
-                'message' => $existing->paused_at
-                    ? 'A timer is already paused. Resume or stop it before starting another.'
-                    : 'A timer is already running. Stop it before starting another.',
+                'message' => 'A timer is already running. Stop it before starting another.',
             ], 409);
         }
 
@@ -473,6 +398,7 @@ class TimerSessionController extends Controller
         }
 
         $session = $this->sessions->start($user, $teamId, $task, $startedAt);
+        $this->sessions->assignToLatestDraftInvoice($session, $teamId, (int) $user->id);
 
         return $this->sessionResponse($session, 'Timer started.', 201);
     }
@@ -540,42 +466,6 @@ class TimerSessionController extends Controller
         return $this->sessionResponse($session, 'Timer session updated.');
     }
 
-    public function pauseSession(int $sessionId): JsonResponse
-    {
-        abort_unless(Auth::check(), 401, 'Authentication required.');
-
-        $session = $this->findTeamSessionOrFail($sessionId);
-        Gate::authorize('operate', $session);
-
-        if (!$session->isRunning()) {
-            return response()->json([
-                'message' => 'Only a running timer session can be paused.',
-            ], 422);
-        }
-
-        $this->sessions->pause($session);
-
-        return $this->sessionResponse($session, 'Timer paused.');
-    }
-
-    public function resumeSession(int $sessionId): JsonResponse
-    {
-        abort_unless(Auth::check(), 401, 'Authentication required.');
-
-        $session = $this->findTeamSessionOrFail($sessionId);
-        Gate::authorize('operate', $session);
-
-        if (!$session->isPaused()) {
-            return response()->json([
-                'message' => 'Only a paused timer session can be resumed.',
-            ], 422);
-        }
-
-        $this->sessions->resume($session);
-
-        return $this->sessionResponse($session, 'Timer resumed.');
-    }
-
     public function stopSession(int $sessionId): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -610,10 +500,8 @@ class TimerSessionController extends Controller
         $activeSession = $this->sessions->findActiveSessionForUser((int) Auth::id(), $this->currentTeamIdOrFail());
 
         if ($activeSession) {
-            $otherState = $activeSession->paused_at ? 'paused' : 'running';
-
             return response()->json([
-                'message' => "A timer is currently {$otherState} on another session. Stop it before resuming this one.",
+                'message' => 'A timer is currently running on another session. Stop it before resuming this one.',
             ], 422);
         }
 
@@ -725,24 +613,6 @@ class TimerSessionController extends Controller
         ], $status);
     }
 
-    private function findRunningSession(): ?TimerSession
-    {
-        return $this->applyCurrentUserScope(TimerSession::query())
-            ->whereNull('stopped_at')
-            ->whereNull('paused_at')
-            ->latest('started_at')
-            ->first();
-    }
-
-    private function findPausedSession(): ?TimerSession
-    {
-        return $this->applyCurrentUserScope(TimerSession::query())
-            ->whereNull('stopped_at')
-            ->whereNotNull('paused_at')
-            ->latest('paused_at')
-            ->first();
-    }
-
     private function findActiveSession(): ?TimerSession
     {
         return $this->applyCurrentUserScope(TimerSession::query())
@@ -802,63 +672,6 @@ class TimerSessionController extends Controller
 
     private function createDraftInvoiceForClient(int $userId, int $teamId, int $clientId): Invoice
     {
-        $financialYear = $this->findOrCreateFinancialYearForTeam($userId, $teamId, $this->defaultNzFinancialYearStart());
-
-        $invoice = Invoice::create([
-            'user_id' => $userId,
-            'team_id' => $teamId,
-            'client_id' => $clientId,
-            'financial_year_id' => $financialYear->id,
-            'invoice_number' => $this->generateTemporaryInvoiceNumber(),
-            'status' => 'draft',
-        ]);
-
-        $invoice->invoice_number = (string) $invoice->id;
-        $invoice->save();
-
-        return $invoice;
-    }
-
-    private function defaultNzFinancialYearStart(): int
-    {
-        $nowNz = CarbonImmutable::now('Pacific/Auckland');
-
-        return $nowNz->month >= 4 ? $nowNz->year : $nowNz->subYear()->year;
-    }
-
-    private function nzFinancialYearPeriod(int $financialYearStart): array
-    {
-        $start = CarbonImmutable::create($financialYearStart, 4, 1, 0, 0, 0, 'Pacific/Auckland');
-        $end = $start->addYear()->subDay();
-
-        return [
-            'start' => $start,
-            'end' => $end,
-            'label' => $financialYearStart . '/' . ($financialYearStart + 1),
-        ];
-    }
-
-    private function findOrCreateFinancialYearForTeam(int $userId, int $teamId, int $startYear): FinancialYear
-    {
-        $period = $this->nzFinancialYearPeriod($startYear);
-
-        return FinancialYear::query()->firstOrCreate(
-            [
-                'team_id' => $teamId,
-                'start_year' => $startYear,
-            ],
-            [
-                'user_id' => $userId,
-                'end_year' => $startYear + 1,
-                'label' => $period['label'],
-                'start_date' => $period['start']->toDateString(),
-                'end_date' => $period['end']->toDateString(),
-            ]
-        );
-    }
-
-    private function generateTemporaryInvoiceNumber(): string
-    {
-        return 'TMP-' . (string) Str::uuid();
+        return $this->sessions->createDraftInvoiceForClient($userId, $teamId, $clientId);
     }
 }

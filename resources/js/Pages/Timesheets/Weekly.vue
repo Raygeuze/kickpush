@@ -41,7 +41,7 @@ const liveServerNow = ref(props.serverNow);
 const editingSessionId = ref(null);
 const editForm = reactive({ task_id: '', session_date: '', duration_minutes: '', invoice_id: '' });
 const startingCell = ref(null);
-const startForm = reactive({ task_id: '' });
+const startForm = reactive({ project_id: '', task_id: '' });
 const startingTimer = ref(false);
 const formErrors = ref('');
 
@@ -116,6 +116,32 @@ const projectRows = computed(() => {
     });
 
     return Array.from(rows.values()).sort((left, right) => left.projectName.localeCompare(right.projectName));
+});
+
+const NEW_ROW_KEY = '__new__';
+const newEntryRow = { key: NEW_ROW_KEY, projectId: null, projectName: 'New entry', clientName: '', sessions: [] };
+const isNewEntryCell = computed(() => selectedCell.value?.projectKey === NEW_ROW_KEY);
+
+const projectsByClient = computed(() => {
+    const clientNames = new Map((props.clients || []).map((client) => [String(client.id), client.name]));
+    const groups = new Map();
+
+    (props.projects || []).forEach((project) => {
+        const clientName = clientNames.get(String(project.client_id)) || 'Unassigned client';
+
+        if (!groups.has(clientName)) {
+            groups.set(clientName, []);
+        }
+
+        groups.get(clientName).push(project);
+    });
+
+    return Array.from(groups.entries())
+        .map(([clientName, projects]) => ({
+            clientName,
+            projects: [...projects].sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''))),
+        }))
+        .sort((left, right) => left.clientName.localeCompare(right.clientName));
 });
 
 function sessionsForCell(row, dayKey) {
@@ -263,25 +289,17 @@ async function mutateSession(sessionId, request) {
         applySessionPayload(response.data);
         statusMessage.value = response.data?.message || 'Timer session updated.';
 
-        return true;
+        return response.data || {};
     } catch (error) {
         formErrors.value = error?.response?.data?.message
             || Object.values(error?.response?.data?.errors || {}).flat()[0]
             || 'Failed to update timer session.';
         statusMessage.value = formErrors.value;
 
-        return false;
+        return null;
     } finally {
         busySessionIds.value = busySessionIds.value.filter((id) => id !== sessionId);
     }
-}
-
-function pauseSession(session) {
-    return mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/pause`));
-}
-
-function resumeSession(session) {
-    return mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/resume`));
 }
 
 function stopSession(session) {
@@ -297,10 +315,10 @@ function detachInvoice(session) {
 }
 
 const projectTasks = computed(() => {
-    const projectId = selectedProject.value?.projectId;
+    const projectId = isNewEntryCell.value ? startForm.project_id : selectedProject.value?.projectId;
 
     if (!projectId) {
-        return props.tasks || [];
+        return isNewEntryCell.value ? [] : (props.tasks || []);
     }
 
     return (props.tasks || []).filter((task) => String(task.project_id) === String(projectId));
@@ -382,8 +400,24 @@ function openStartTimer() {
     editingSessionId.value = null;
     formErrors.value = '';
     startingCell.value = { ...selectedCell.value };
+    startForm.project_id = isNewEntryCell.value ? '' : String(selectedProject.value?.projectId || '');
     startForm.task_id = projectTasks.value[0] ? String(projectTasks.value[0].id) : '';
 }
+
+function chooseNewEntryCell(day) {
+    if (!day) {
+        return;
+    }
+
+    chooseCell(newEntryRow, day);
+    openStartTimer();
+}
+
+watch(() => startForm.project_id, () => {
+    if (isNewEntryCell.value) {
+        startForm.task_id = projectTasks.value[0] ? String(projectTasks.value[0].id) : '';
+    }
+});
 
 function cancelStartTimer() {
     startingCell.value = null;
@@ -408,6 +442,13 @@ async function startTimer() {
 
     if (started) {
         startingCell.value = null;
+
+        if (started.session) {
+            selectedCell.value = {
+                projectKey: projectKey(started.session),
+                dayKey: started.session.day_key,
+            };
+        }
     }
 }
 
@@ -518,7 +559,7 @@ onBeforeUnmount(() => {
                         <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ activeDaysCount }}</p>
                     </div>
                     <div class="p-4">
-                        <p class="text-xs text-gray-500">Running / paused</p>
+                        <p class="text-xs text-gray-500">Open sessions</p>
                         <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ activeSessionsCount }}</p>
                     </div>
                 </section>
@@ -589,6 +630,24 @@ onBeforeUnmount(() => {
                                 </td>
                                 <td class="px-3 py-3 text-right text-sm font-bold text-gray-950 dark:text-white">{{ formatDuration(projectDuration(row)) }}</td>
                             </tr>
+                            <tr v-if="canCreateSessions" class="border-b border-gray-100 last:border-0 dark:border-gray-800">
+                                <th class="px-4 py-3 text-left">
+                                    <span class="block truncate text-sm font-semibold text-gray-500">New entry</span>
+                                    <span class="block truncate text-xs font-normal text-gray-400">Pick a project and task</span>
+                                </th>
+                                <td v-for="day in visibleDays" :key="day.key" class="p-1.5" :class="day.is_today ? 'bg-emerald-50/60 dark:bg-emerald-950/20' : ''">
+                                    <button
+                                        type="button"
+                                        class="flex h-14 w-full items-center justify-center rounded-md border border-dashed border-gray-300 text-gray-400 transition hover:border-emerald-400 hover:text-emerald-600 dark:border-gray-700 dark:text-gray-600 dark:hover:border-emerald-700"
+                                        :class="selectedCell && selectedCell.projectKey === '__new__' && selectedCell.dayKey === day.key ? 'ring-2 ring-emerald-500' : ''"
+                                        :title="`Start a timer on ${day.full_label}`"
+                                        @click="chooseNewEntryCell(day)"
+                                    >
+                                        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                                    </button>
+                                </td>
+                                <td class="px-3 py-3"></td>
+                            </tr>
                             <tr v-if="projectRows.length" class="bg-gray-50 dark:bg-gray-900">
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Daily total</th>
                                 <td v-for="day in visibleDays" :key="day.key" class="px-2 py-3 text-center text-sm font-bold text-gray-900 dark:text-white">{{ formatDuration(dayDuration(day.key)) }}</td>
@@ -611,13 +670,17 @@ onBeforeUnmount(() => {
                             <span class="text-sm font-bold text-gray-950 dark:text-white">{{ formatDuration(cellDuration(row, selectedDayKey)) }}</span>
                         </button>
                         <p v-if="mobileProjectRows.length === 0" class="py-8 text-center text-sm text-gray-500">No sessions recorded on this day.</p>
+                        <button v-if="canCreateSessions" type="button" class="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 p-4 text-sm font-semibold text-gray-500 hover:border-emerald-400 hover:text-emerald-600 dark:border-gray-700" @click="chooseNewEntryCell(days.find((day) => day.key === selectedDayKey))">
+                            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                            New entry
+                        </button>
                     </div>
                 </section>
 
                 <section v-if="selectedCell" class="border-t border-gray-300 pt-5 dark:border-gray-700">
                     <div class="flex items-center justify-between gap-4">
                         <div>
-                            <h2 class="text-lg font-semibold text-gray-950 dark:text-white">{{ selectedProject?.projectName }}</h2>
+                            <h2 class="text-lg font-semibold text-gray-950 dark:text-white">{{ isNewEntryCell ? 'New entry' : selectedProject?.projectName }}</h2>
                             <p class="text-sm text-gray-500">{{ selectedDay?.full_label }} · {{ formatPreciseDuration(selectedSessions.reduce((total, session) => total + sessionDuration(session), 0)) }}</p>
                         </div>
                         <div class="flex items-center gap-3">
@@ -640,6 +703,15 @@ onBeforeUnmount(() => {
 
                     <form v-if="startingCell" class="relative mt-3 flex flex-col gap-3 rounded-lg border border-emerald-300 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20 sm:flex-row sm:items-end" @submit.prevent="startTimer">
                         <p class="absolute right-4 top-3 text-xs text-gray-500">Timer runs from now and is recorded on {{ selectedDay?.full_label }}.</p>
+                        <label v-if="isNewEntryCell" class="flex-1 text-xs font-semibold uppercase text-gray-500">
+                            Project
+                            <select v-model="startForm.project_id" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white">
+                                <option value="">Select a project</option>
+                                <optgroup v-for="group in projectsByClient" :key="group.clientName" :label="group.clientName">
+                                    <option v-for="project in group.projects" :key="project.id" :value="String(project.id)">{{ project.name }}</option>
+                                </optgroup>
+                            </select>
+                        </label>
                         <label class="flex-1 text-xs font-semibold uppercase text-gray-500">
                             Task
                             <select v-model="startForm.task_id" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white">
@@ -660,7 +732,7 @@ onBeforeUnmount(() => {
                                     <div class="flex flex-wrap items-center gap-2">
                                         <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ session.task_name }}</p>
                                         <span v-if="session.is_running" class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">Running</span>
-                                        <span v-else-if="session.is_paused" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Paused</span>
+                                        <span v-else-if="session.is_paused" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Open</span>
                                         <span v-else-if="session.invoice_locked" class="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">Locked</span>
                                     </div>
                                     <p class="mt-1 text-xs text-gray-500">{{ session.user_name }} · {{ session.started_time }}<span v-if="session.stopped_time">–{{ session.stopped_time }}</span> · {{ invoiceLabel(session) }}</p>
@@ -668,8 +740,6 @@ onBeforeUnmount(() => {
                                 <div class="flex items-center gap-2">
                                     <span class="font-mono text-sm font-semibold text-gray-950 dark:text-white">{{ formatPreciseDuration(sessionDuration(session)) }}</span>
 
-                                    <button v-if="session.can_operate && session.is_running" type="button" class="rounded-lg border border-amber-300 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-60" :disabled="isBusy(session.id)" @click="pauseSession(session)">Pause</button>
-                                    <button v-if="session.can_operate && session.is_paused" type="button" class="rounded-lg border border-emerald-300 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60" :disabled="isBusy(session.id)" @click="resumeSession(session)">Resume</button>
                                     <button v-if="session.can_operate && (session.is_running || session.is_paused)" type="button" class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200" :disabled="isBusy(session.id)" @click="stopSession(session)">Stop</button>
                                     <button v-if="session.can_operate && !session.is_running && !session.is_paused && !session.invoice_locked" type="button" class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200" :disabled="isBusy(session.id)" @click="restartSession(session)">Restart</button>
                                     <button v-if="session.can_update && !session.invoice_locked && !session.is_running && !session.is_paused" type="button" class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200" :disabled="isBusy(session.id)" @click="editingSessionId === session.id ? cancelEditing() : startEditing(session)">
