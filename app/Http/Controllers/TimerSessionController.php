@@ -414,7 +414,7 @@ class TimerSessionController extends Controller
             'project_id' => 'nullable|integer',
             'task_id' => 'nullable|integer',
             'session_date' => 'nullable|date',
-            'duration_seconds' => 'nullable|integer|min:60|max:604800',
+            'duration_seconds' => 'nullable|integer|min:1|max:604800',
             'duration_minutes' => 'nullable|numeric|min:1|max:10080',
         ]);
 

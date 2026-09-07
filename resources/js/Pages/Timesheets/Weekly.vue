@@ -39,7 +39,7 @@ let clockInterval = null;
 const liveSessions = ref([...props.sessions]);
 const liveServerNow = ref(props.serverNow);
 const editingSessionId = ref(null);
-const editForm = reactive({ task_id: '', session_date: '', duration_minutes: '', invoice_id: '' });
+const editForm = reactive({ task_id: '', session_date: '', duration: '', invoice_id: '' });
 const startingCell = ref(null);
 const startForm = reactive({ project_id: '', task_id: '' });
 const startingTimer = ref(false);
@@ -90,6 +90,25 @@ function formatPreciseDuration(totalSeconds) {
     const minutes = Math.floor((seconds % 3600) / 60);
 
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function formatClockDuration(totalSeconds) {
+    const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+
+    return [Math.floor(seconds / 3600), Math.floor((seconds % 3600) / 60), seconds % 60]
+        .map((part) => String(part).padStart(2, '0'))
+        .join(':');
+}
+
+// Accepts HH:MM:SS, MM:SS or SS; returns null when unparseable.
+function parseClockDuration(value) {
+    const parts = String(value || '').trim().split(':');
+
+    if (parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) {
+        return null;
+    }
+
+    return parts.reduce((total, part) => (total * 60) + Number(part), 0);
 }
 
 function projectKey(session) {
@@ -340,7 +359,7 @@ function startEditing(session) {
     editingSessionId.value = session.id;
     editForm.task_id = session.task_id ? String(session.task_id) : '';
     editForm.session_date = session.day_key;
-    editForm.duration_minutes = String(Math.max(1, Math.round(sessionDuration(session) / 60)));
+    editForm.duration = formatClockDuration(sessionDuration(session));
     editForm.invoice_id = session.invoice_id ? String(session.invoice_id) : '';
 }
 
@@ -360,11 +379,22 @@ async function saveEdit(session) {
         payload.session_date = editForm.session_date;
     }
 
-    const nextMinutes = Number(editForm.duration_minutes);
-    const currentMinutes = Math.round(sessionDuration(session) / 60);
+    const nextSeconds = parseClockDuration(editForm.duration);
 
-    if (Number.isFinite(nextMinutes) && nextMinutes > 0 && nextMinutes !== currentMinutes) {
-        payload.duration_minutes = nextMinutes;
+    if (nextSeconds === null) {
+        formErrors.value = 'Enter the duration as HH:MM:SS.';
+
+        return;
+    }
+
+    if (nextSeconds < 1) {
+        formErrors.value = 'Duration must be at least one second.';
+
+        return;
+    }
+
+    if (nextSeconds !== sessionDuration(session)) {
+        payload.duration_seconds = nextSeconds;
     }
 
     if (Object.keys(payload).length === 0) {
@@ -766,8 +796,8 @@ onBeforeUnmount(() => {
                                     <input v-model="editForm.session_date" type="date" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white">
                                 </label>
                                 <label class="text-xs font-semibold uppercase text-gray-500">
-                                    Minutes
-                                    <input v-model="editForm.duration_minutes" type="number" min="1" max="10080" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white">
+                                    Duration
+                                    <input v-model="editForm.duration" type="text" inputmode="numeric" placeholder="00:00:00" pattern="^\d+(:\d{1,2}){0,2}$" class="mt-1 w-full rounded-lg border-gray-300 font-mono text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white">
                                 </label>
 
                                 <div class="flex flex-wrap items-center gap-3 sm:col-span-4">
