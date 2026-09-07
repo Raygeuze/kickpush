@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Client;
+use App\Models\Invoice;
 use App\Models\Project;
+use App\Models\Task;
 use App\Models\TimerSession;
 use App\Models\User;
+use App\Services\TimesheetSessionPresenter;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,6 +21,13 @@ use Inertia\Response;
 
 class TimesheetController extends Controller
 {
+    private TimesheetSessionPresenter $presenter;
+
+    public function __construct(TimesheetSessionPresenter $presenter)
+    {
+        $this->presenter = $presenter;
+    }
+
     public function index(Request $request): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -49,13 +59,7 @@ class TimesheetController extends Controller
             ->where('team_id', $team->id)
             ->where('started_at', '>=', $weekStart->utc())
             ->where('started_at', '<', $weekEndExclusive->utc())
-            ->with([
-                'user:id,name',
-                'invoice:id,status',
-                'task:id,name,project_id',
-                'task.project:id,name,client_id',
-                'task.project.client:id,name',
-            ]);
+            ->with(TimesheetSessionPresenter::RELATIONS);
 
         if ($selectedUserId !== null) {
             $query->where(function (Builder $userQuery) use ($selectedUserId): void {
@@ -94,37 +98,7 @@ class TimesheetController extends Controller
         $sessions = $query
             ->orderBy('started_at')
             ->get()
-            ->map(function (TimerSession $session) use ($generatedAt, $timezone): array {
-                $localStart = $session->started_at->copy()->setTimezone($timezone);
-                $invoiceStatus = optional($session->invoice)->status;
-
-                return [
-                    'id' => (int) $session->id,
-                    'user_id' => $session->user_id ?? $session->user_id_snapshot,
-                    'user_name' => optional($session->user)->name ?? $session->user_name_snapshot ?? 'Unknown user',
-                    'task_id' => $session->task_id ?? $session->task_id_snapshot,
-                    'task_name' => optional($session->task)->name ?? $session->task_name_snapshot ?? 'General',
-                    'project_id' => optional(optional($session->task)->project)->id ?? $session->project_id_snapshot,
-                    'project_name' => optional(optional($session->task)->project)->name ?? $session->project_name_snapshot ?? 'Unassigned Project',
-                    'client_id' => optional(optional(optional($session->task)->project)->client)->id ?? $session->client_id_snapshot,
-                    'client_name' => optional(optional(optional($session->task)->project)->client)->name ?? $session->client_name_snapshot ?? 'Unassigned Client',
-                    'invoice_id' => $session->invoice_id,
-                    'invoice_status' => $invoiceStatus,
-                    'invoice_locked' => in_array($invoiceStatus, ['finalized', 'paid'], true),
-                    'started_at' => $session->started_at->toIso8601String(),
-                    'started_time' => $localStart->format('H:i'),
-                    'stopped_time' => $session->stopped_at
-                        ? $session->stopped_at->copy()->setTimezone($timezone)->format('H:i')
-                        : null,
-                    'day_key' => $localStart->toDateString(),
-                    'elapsed_seconds' => $session->elapsedSeconds($generatedAt),
-                    'is_running' => $session->isRunning(),
-                    'is_paused' => $session->isPaused(),
-                    'can_update' => Gate::allows('update', $session),
-                    'can_delete' => Gate::allows('delete', $session),
-                    'can_operate' => Gate::allows('operate', $session),
-                ];
-            })
+            ->map(fn (TimerSession $session): array => $this->presenter->present($session, $timezone, $generatedAt))
             ->values();
 
         $memberIds = DB::table('team_user')->where('team_id', $team->id)->pluck('user_id');
@@ -161,6 +135,17 @@ class TimesheetController extends Controller
                 ->where('team_id', $team->id)
                 ->orderBy('name')
                 ->get(['id', 'client_id', 'name']),
+            'tasks' => Task::query()
+                ->where('team_id', $team->id)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'project_id', 'client_id', 'name']),
+            'draftInvoices' => Invoice::query()
+                ->where('team_id', $team->id)
+                ->where('status', 'draft')
+                ->orderByDesc('id')
+                ->get(['id', 'client_id', 'invoice_number']),
+            'canCreateSessions' => Gate::allows('create', TimerSession::class),
             'teamMembers' => $teamMembers,
             'canViewTeamSessions' => $canViewTeamSessions,
             'filters' => [

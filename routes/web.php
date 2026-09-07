@@ -94,8 +94,18 @@ Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
     Route::post('/timer/pause', [TimerSessionController::class, 'pause'])->name('timer.pause');
     Route::post('/timer/resume', [TimerSessionController::class, 'resume'])->name('timer.resume');
     Route::post('/timer/stop', [TimerSessionController::class, 'stop'])->name('timer.stop');
-    Route::delete('/timer/{sessionId}', [TimerSessionController::class, 'destroy'])->name('timer.destroy');
     Route::post('/timer/submit-to-invoice', [TimerSessionController::class, 'submitToInvoice'])->name('timer.submitToInvoice');
+
+    Route::post('/timer/sessions', [TimerSessionController::class, 'startSessionForTask'])->name('timer.sessions.start');
+    Route::patch('/timer/sessions/{sessionId}', [TimerSessionController::class, 'updateSession'])->name('timer.sessions.update');
+    Route::post('/timer/sessions/{sessionId}/pause', [TimerSessionController::class, 'pauseSession'])->name('timer.sessions.pause');
+    Route::post('/timer/sessions/{sessionId}/resume', [TimerSessionController::class, 'resumeSession'])->name('timer.sessions.resume');
+    Route::post('/timer/sessions/{sessionId}/stop', [TimerSessionController::class, 'stopSession'])->name('timer.sessions.stop');
+    Route::post('/timer/sessions/{sessionId}/restart', [TimerSessionController::class, 'restartSession'])->name('timer.sessions.restart');
+    Route::post('/timer/sessions/{sessionId}/invoice', [TimerSessionController::class, 'attachSessionToInvoice'])->name('timer.sessions.invoice.attach');
+    Route::delete('/timer/sessions/{sessionId}/invoice', [TimerSessionController::class, 'detachSessionFromInvoice'])->name('timer.sessions.invoice.detach');
+
+    Route::delete('/timer/{sessionId}', [TimerSessionController::class, 'destroy'])->name('timer.destroy');
 });
 
 require __DIR__.'/auth.php';

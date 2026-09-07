@@ -13,6 +13,7 @@ use App\Models\TimerSession;
 use App\Models\UserAdditionalTax;
 use App\Models\User;
 use App\Services\TimerSessionBillingSnapshot;
+use App\Services\TimerSessionService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -31,9 +32,12 @@ class InvoiceController extends Controller
 {
     private TimerSessionBillingSnapshot $billingSnapshots;
 
-    public function __construct(TimerSessionBillingSnapshot $billingSnapshots)
+    private TimerSessionService $sessions;
+
+    public function __construct(TimerSessionBillingSnapshot $billingSnapshots, TimerSessionService $sessions)
     {
         $this->billingSnapshots = $billingSnapshots;
+        $this->sessions = $sessions;
     }
 
     private function currentTeamIdOrFail(): int
@@ -409,10 +413,7 @@ class InvoiceController extends Controller
             ], 422);
         }
 
-        $invoice->loadMissing('client');
-        $this->billingSnapshots->applyIfMissing($session, $invoice->client);
-        $session->invoice_id = $invoice->id;
-        $session->save();
+        $this->sessions->attachToInvoice($session, $invoice);
 
         return response()->json([
             'message' => 'Timer session added to invoice.',
@@ -677,7 +678,6 @@ class InvoiceController extends Controller
 
         $durationSeconds = ((int) $validated['duration_minutes']) * 60;
         $startedAt = isset($validated['started_at']) ? now()->parse($validated['started_at']) : now();
-        $stoppedAt = (clone $startedAt)->addSeconds($durationSeconds);
 
         $taskId = $this->resolveTaskIdForInvoiceClient(
             $invoice,
@@ -689,15 +689,14 @@ class InvoiceController extends Controller
         abort_unless($user instanceof User, 401, 'Authentication required.');
         $snapshotTask = $taskId ? Task::query()->with('project')->find($taskId) : null;
 
-        TimerSession::create(array_merge([
-            'user_id' => Auth::id(),
-            'team_id' => $this->currentTeamIdOrFail(),
-            'invoice_id' => $invoice->id,
-            'task_id' => $taskId,
-            'started_at' => $startedAt,
-            'stopped_at' => $stoppedAt,
-            'duration_seconds' => $durationSeconds,
-        ], $this->billingSnapshots->attributes($user, $invoice->client, $snapshotTask)));
+        $this->sessions->createManual(
+            $user,
+            $this->currentTeamIdOrFail(),
+            $snapshotTask,
+            $startedAt,
+            $durationSeconds,
+            $invoice
+        );
 
         $freshInvoice = $invoice->fresh();
 
@@ -742,12 +741,7 @@ class InvoiceController extends Controller
             ], 422);
         }
 
-        $session->active_started_at = now();
-        $session->paused_at = null;
-        $session->stopped_at = null;
-        $session->accumulated_seconds = max(0, (int) ($session->duration_seconds ?? 0));
-        $session->duration_seconds = null;
-        $session->save();
+        $this->sessions->restart($session);
 
         $freshInvoice = $invoice->fresh();
 
@@ -782,8 +776,7 @@ class InvoiceController extends Controller
 
         Gate::authorize('update', $session);
 
-        $session->invoice_id = null;
-        $session->save();
+        $this->sessions->detachFromInvoice($session);
 
         return response()->json([
             'message' => 'Timer session removed from invoice.',
@@ -820,22 +813,7 @@ class InvoiceController extends Controller
 
         Gate::authorize('update', $session);
 
-        $newDate = now()->parse($validated['session_date']);
-
-        $session->started_at = $session->started_at
-            ? $session->started_at->copy()->setDate($newDate->year, $newDate->month, $newDate->day)
-            : $newDate->copy();
-
-        if ($session->stopped_at) {
-            $session->stopped_at = $session->stopped_at->copy()->setDate($newDate->year, $newDate->month, $newDate->day);
-
-            if ($session->stopped_at->lessThan($session->started_at)) {
-                $session->stopped_at = $session->stopped_at->addDay();
-            }
-        }
-
-        $session->duration_seconds = $session->elapsedSeconds($session->stopped_at);
-        $session->save();
+        $this->sessions->moveToDate($session, now()->parse($validated['session_date']));
 
         $freshInvoice = $invoice->fresh();
 
@@ -879,17 +857,7 @@ class InvoiceController extends Controller
             ? (int) $validated['duration_seconds']
             : max(1, (int) round(((float) $validated['duration_minutes']) * 60));
 
-        if ($session->started_at) {
-            $session->stopped_at = $session->started_at->copy()->addSeconds($durationSeconds);
-        } elseif ($session->stopped_at) {
-            $session->started_at = $session->stopped_at->copy()->subSeconds($durationSeconds);
-        }
-
-        $session->duration_seconds = $durationSeconds;
-        $session->accumulated_seconds = 0;
-        $session->active_started_at = null;
-        $session->paused_at = null;
-        $session->save();
+        $this->sessions->updateDuration($session, $durationSeconds);
 
         $freshInvoice = $invoice->fresh();
 
@@ -1603,41 +1571,14 @@ class InvoiceController extends Controller
             return null;
         }
 
-        if ($taskId !== null) {
-            $task = Task::query()
-                ->where('team_id', $this->currentTeamIdOrFail())
-                ->where('client_id', $invoice->client_id)
-                ->whereKey($taskId)
-                ->where('is_active', true)
-                ->whereHas('project', function (Builder $query): void {
-                    $query->where('team_id', $this->currentTeamIdOrFail());
-                })
-                ->first();
+        $task = $this->sessions->resolveTaskForTeam(
+            $this->currentTeamIdOrFail(),
+            (int) $invoice->client_id,
+            $projectId,
+            $taskId
+        );
 
-            if (!$task) {
-                return null;
-            }
-
-            return (int) $task->id;
-        }
-
-        if ($projectId === null) {
-            return null;
-        }
-
-        $fallbackTask = Task::query()
-            ->where('team_id', $this->currentTeamIdOrFail())
-            ->where('client_id', $invoice->client_id)
-            ->where('project_id', $projectId)
-            ->where('is_active', true)
-            ->whereHas('project', function (Builder $query): void {
-                $query->where('team_id', $this->currentTeamIdOrFail());
-            })
-            ->orderByDesc('is_default')
-            ->orderBy('name')
-            ->first();
-
-        return $fallbackTask ? (int) $fallbackTask->id : null;
+        return $task ? (int) $task->id : null;
     }
 
     private function availableConfirmedSessions(Invoice $invoice)

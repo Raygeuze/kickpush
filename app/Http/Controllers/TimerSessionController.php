@@ -9,6 +9,9 @@ use App\Models\Task;
 use App\Models\TimerSession;
 use App\Models\User;
 use App\Services\TimerSessionBillingSnapshot;
+use App\Services\TimerSessionService;
+use App\Services\TimesheetSessionPresenter;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -22,9 +25,18 @@ class TimerSessionController extends Controller
 {
     private TimerSessionBillingSnapshot $billingSnapshots;
 
-    public function __construct(TimerSessionBillingSnapshot $billingSnapshots)
-    {
+    private TimerSessionService $sessions;
+
+    private TimesheetSessionPresenter $presenter;
+
+    public function __construct(
+        TimerSessionBillingSnapshot $billingSnapshots,
+        TimerSessionService $sessions,
+        TimesheetSessionPresenter $presenter
+    ) {
         $this->billingSnapshots = $billingSnapshots;
+        $this->sessions = $sessions;
+        $this->presenter = $presenter;
     }
 
     private function currentTeamIdOrFail(): int
@@ -34,6 +46,15 @@ class TimerSessionController extends Controller
         abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
 
         return (int) $user->currentTeam->id;
+    }
+
+    private function currentTeamTimezone(): string
+    {
+        $user = Auth::user();
+
+        abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
+
+        return (string) ($user->currentTeam->timezone ?: 'UTC');
     }
 
     public function history(Request $request): JsonResponse
@@ -391,6 +412,317 @@ class TimerSessionController extends Controller
             'session' => $assignedSession,
             'invoice' => $assignedInvoice,
         ]);
+    }
+
+    public function startSessionForTask(Request $request): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+        Gate::authorize('create', TimerSession::class);
+
+        $validated = $request->validate([
+            'project_id' => 'nullable|integer',
+            'task_id' => 'nullable|integer|required_without:project_id',
+            'session_date' => 'nullable|date',
+        ]);
+
+        $user = Auth::user();
+        abort_unless($user instanceof User, 401, 'Authentication required.');
+
+        $teamId = $this->currentTeamIdOrFail();
+        $existing = $this->sessions->findActiveSessionForUser((int) $user->id, $teamId);
+
+        if ($existing) {
+            return response()->json([
+                'message' => $existing->paused_at
+                    ? 'A timer is already paused. Resume or stop it before starting another.'
+                    : 'A timer is already running. Stop it before starting another.',
+            ], 409);
+        }
+
+        $task = $this->sessions->resolveTaskForTeam(
+            $teamId,
+            null,
+            isset($validated['project_id']) ? (int) $validated['project_id'] : null,
+            isset($validated['task_id']) ? (int) $validated['task_id'] : null
+        );
+
+        if (!$task) {
+            return response()->json([
+                'message' => 'Select a valid active task before starting a timer.',
+            ], 422);
+        }
+
+        if (optional($task->project)->is_active === false) {
+            return response()->json([
+                'message' => 'Cannot start a timer session on an archived project.',
+            ], 422);
+        }
+
+        $startedAt = null;
+
+        if (isset($validated['session_date'])) {
+            $timezone = $this->currentTeamTimezone();
+            $nowLocal = now()->setTimezone($timezone);
+            $day = CarbonImmutable::parse($validated['session_date'], $timezone)->startOfDay();
+
+            if (!$day->isSameDay($nowLocal)) {
+                $startedAt = $day
+                    ->setTime($nowLocal->hour, $nowLocal->minute, $nowLocal->second)
+                    ->setTimezone('UTC');
+            }
+        }
+
+        $session = $this->sessions->start($user, $teamId, $task, $startedAt);
+
+        return $this->sessionResponse($session, 'Timer started.', 201);
+    }
+
+    public function updateSession(Request $request, int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $session = $this->findTeamSessionOrFail($sessionId);
+        Gate::authorize('update', $session);
+
+        $validated = $request->validate([
+            'project_id' => 'nullable|integer',
+            'task_id' => 'nullable|integer',
+            'session_date' => 'nullable|date',
+            'duration_seconds' => 'nullable|integer|min:60|max:604800',
+            'duration_minutes' => 'nullable|numeric|min:1|max:10080',
+        ]);
+
+        $changesTask = isset($validated['task_id']) || isset($validated['project_id']);
+        $changesDate = isset($validated['session_date']);
+        $changesDuration = isset($validated['duration_seconds']) || isset($validated['duration_minutes']);
+
+        if (!$changesTask && !$changesDate && !$changesDuration) {
+            return response()->json([
+                'message' => 'Provide a task, date or duration to update.',
+            ], 422);
+        }
+
+        if (($changesDate || $changesDuration) && $session->stopped_at === null) {
+            return response()->json([
+                'message' => 'Stop the timer session before editing its date or duration.',
+            ], 422);
+        }
+
+        if ($changesTask) {
+            $task = $this->sessions->resolveTaskForTeam(
+                $this->currentTeamIdOrFail(),
+                $this->invoiceClientIdForSession($session),
+                isset($validated['project_id']) ? (int) $validated['project_id'] : null,
+                isset($validated['task_id']) ? (int) $validated['task_id'] : null
+            );
+
+            if (!$task) {
+                return response()->json([
+                    'message' => 'Select a valid active task for this session before saving.',
+                ], 422);
+            }
+
+            $this->sessions->updateTask($session, $task);
+        }
+
+        if ($changesDate) {
+            $this->sessions->moveToDate(
+                $session,
+                Carbon::parse($validated['session_date']),
+                $this->currentTeamTimezone()
+            );
+        }
+
+        if ($changesDuration) {
+            $this->sessions->updateDuration($session, $this->resolveDurationSeconds($validated));
+        }
+
+        return $this->sessionResponse($session, 'Timer session updated.');
+    }
+
+    public function pauseSession(int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $session = $this->findTeamSessionOrFail($sessionId);
+        Gate::authorize('operate', $session);
+
+        if (!$session->isRunning()) {
+            return response()->json([
+                'message' => 'Only a running timer session can be paused.',
+            ], 422);
+        }
+
+        $this->sessions->pause($session);
+
+        return $this->sessionResponse($session, 'Timer paused.');
+    }
+
+    public function resumeSession(int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $session = $this->findTeamSessionOrFail($sessionId);
+        Gate::authorize('operate', $session);
+
+        if (!$session->isPaused()) {
+            return response()->json([
+                'message' => 'Only a paused timer session can be resumed.',
+            ], 422);
+        }
+
+        $this->sessions->resume($session);
+
+        return $this->sessionResponse($session, 'Timer resumed.');
+    }
+
+    public function stopSession(int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $session = $this->findTeamSessionOrFail($sessionId);
+        Gate::authorize('operate', $session);
+
+        if ($session->stopped_at !== null) {
+            return response()->json([
+                'message' => 'This timer session is already stopped.',
+            ], 422);
+        }
+
+        $this->sessions->stop($session);
+
+        return $this->sessionResponse($session, 'Timer stopped.');
+    }
+
+    public function restartSession(int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $session = $this->findTeamSessionOrFail($sessionId);
+        Gate::authorize('operate', $session);
+
+        if ($session->stopped_at === null) {
+            return response()->json([
+                'message' => 'This timer session is already active.',
+            ], 422);
+        }
+
+        $activeSession = $this->sessions->findActiveSessionForUser((int) Auth::id(), $this->currentTeamIdOrFail());
+
+        if ($activeSession) {
+            $otherState = $activeSession->paused_at ? 'paused' : 'running';
+
+            return response()->json([
+                'message' => "A timer is currently {$otherState} on another session. Stop it before resuming this one.",
+            ], 422);
+        }
+
+        $this->sessions->restart($session);
+
+        return $this->sessionResponse($session, 'Timer session resumed.');
+    }
+
+    public function attachSessionToInvoice(Request $request, int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $validated = $request->validate([
+            'invoice_id' => 'required|integer',
+        ]);
+
+        $session = $this->findTeamSessionOrFail($sessionId);
+        Gate::authorize('update', $session);
+
+        if ($session->stopped_at === null) {
+            return response()->json([
+                'message' => 'Only stopped timer sessions can be assigned to an invoice.',
+            ], 422);
+        }
+
+        $invoice = $this->findDraftInvoiceForActorOrFail((int) $validated['invoice_id']);
+
+        if ($session->invoice_id !== null && (int) $session->invoice_id !== (int) $invoice->id) {
+            return response()->json([
+                'message' => 'This timer session is already assigned to another invoice.',
+            ], 422);
+        }
+
+        $this->sessions->attachToInvoice($session, $invoice);
+
+        return $this->sessionResponse($session, 'Timer session added to invoice.');
+    }
+
+    public function detachSessionFromInvoice(int $sessionId): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Authentication required.');
+
+        $session = $this->findTeamSessionOrFail($sessionId);
+        Gate::authorize('update', $session);
+
+        if ($session->invoice_id === null) {
+            return response()->json([
+                'message' => 'This timer session is not assigned to an invoice.',
+            ], 422);
+        }
+
+        $this->sessions->detachFromInvoice($session);
+
+        return $this->sessionResponse($session, 'Timer session removed from invoice.');
+    }
+
+    private function resolveDurationSeconds(array $validated): int
+    {
+        if (isset($validated['duration_seconds'])) {
+            return (int) $validated['duration_seconds'];
+        }
+
+        return max(60, (int) round(((float) $validated['duration_minutes']) * 60));
+    }
+
+    private function invoiceClientIdForSession(TimerSession $session): ?int
+    {
+        $session->loadMissing('invoice');
+
+        return $session->invoice && $session->invoice->client_id
+            ? (int) $session->invoice->client_id
+            : null;
+    }
+
+    private function findTeamSessionOrFail(int $sessionId): TimerSession
+    {
+        $session = $this->applyTeamScope(TimerSession::query())
+            ->with(TimesheetSessionPresenter::RELATIONS)
+            ->whereKey($sessionId)
+            ->first();
+
+        abort_unless($session !== null, 404, 'Timer session not found.');
+
+        return $session;
+    }
+
+    private function findDraftInvoiceForActorOrFail(int $invoiceId): Invoice
+    {
+        $invoice = $this->applyActorScope(Invoice::query())
+            ->with('client')
+            ->whereKey($invoiceId)
+            ->first();
+
+        abort_unless($invoice !== null, 404, 'Invoice not found.');
+        abort_if(in_array($invoice->status, ['finalized', 'paid'], true), 422, 'Finalized or paid invoices cannot be edited.');
+
+        return $invoice;
+    }
+
+    private function sessionResponse(TimerSession $session, string $message, int $status = 200): JsonResponse
+    {
+        $session->refresh()->load(TimesheetSessionPresenter::RELATIONS);
+        $generatedAt = now();
+
+        return response()->json([
+            'message' => $message,
+            'session' => $this->presenter->present($session, $this->currentTeamTimezone(), $generatedAt),
+            'server_now' => $generatedAt->toIso8601String(),
+        ], $status);
     }
 
     private function findRunningSession(): ?TimerSession

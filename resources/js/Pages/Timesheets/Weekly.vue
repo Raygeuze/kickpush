@@ -12,8 +12,11 @@ const props = defineProps({
     sessions: Array,
     clients: Array,
     projects: Array,
+    tasks: Array,
+    draftInvoices: Array,
     teamMembers: Array,
     canViewTeamSessions: Boolean,
+    canCreateSessions: Boolean,
     filters: Object,
     navigation: Object,
 });
@@ -28,9 +31,27 @@ const showWeekends = ref(true);
 const selectedDayKey = ref(props.days.find((day) => day.is_today)?.key || props.days[0]?.key || '');
 const selectedCell = ref(null);
 const deletingSessionIds = ref([]);
+const busySessionIds = ref([]);
 const statusMessage = ref('');
 const clockMs = ref(Date.now());
 let clockInterval = null;
+
+const liveSessions = ref([...props.sessions]);
+const liveServerNow = ref(props.serverNow);
+const editingSessionId = ref(null);
+const editForm = reactive({ task_id: '', session_date: '', duration_minutes: '', invoice_id: '' });
+const startingCell = ref(null);
+const startForm = reactive({ task_id: '' });
+const startingTimer = ref(false);
+const formErrors = ref('');
+
+watch(() => props.sessions, (next) => {
+    liveSessions.value = [...next];
+}, { deep: true });
+
+watch(() => props.serverNow, (next) => {
+    liveServerNow.value = next;
+});
 
 const visibleDays = computed(() => showWeekends.value ? props.days : props.days.slice(0, 5));
 
@@ -42,7 +63,8 @@ const filteredProjects = computed(() => {
     return props.projects.filter((project) => String(project.client_id) === filterForm.client_id);
 });
 
-const serverNowMs = computed(() => new Date(props.serverNow).getTime());
+const serverNowMs = computed(() => new Date(liveServerNow.value).getTime());
+const allSessions = computed(() => liveSessions.value);
 
 function sessionDuration(session) {
     const baseline = Math.max(0, Number(session.elapsed_seconds || 0));
@@ -62,6 +84,14 @@ function formatDuration(totalSeconds) {
     return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
+function formatPreciseDuration(totalSeconds) {
+    const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 function projectKey(session) {
     return session.project_id ? `project-${session.project_id}` : `project-name-${session.project_name}`;
 }
@@ -69,7 +99,7 @@ function projectKey(session) {
 const projectRows = computed(() => {
     const rows = new Map();
 
-    props.sessions.forEach((session) => {
+    liveSessions.value.forEach((session) => {
         const key = projectKey(session);
 
         if (!rows.has(key)) {
@@ -101,14 +131,14 @@ function projectDuration(row) {
 }
 
 function dayDuration(dayKey) {
-    return props.sessions
+    return liveSessions.value
         .filter((session) => session.day_key === dayKey)
         .reduce((total, session) => total + sessionDuration(session), 0);
 }
 
-const weekDuration = computed(() => props.sessions.reduce((total, session) => total + sessionDuration(session), 0));
-const activeSessionsCount = computed(() => props.sessions.filter((session) => session.is_running || session.is_paused).length);
-const activeDaysCount = computed(() => new Set(props.sessions.map((session) => session.day_key)).size);
+const weekDuration = computed(() => liveSessions.value.reduce((total, session) => total + sessionDuration(session), 0));
+const activeSessionsCount = computed(() => liveSessions.value.filter((session) => session.is_running || session.is_paused).length);
+const activeDaysCount = computed(() => new Set(liveSessions.value.map((session) => session.day_key)).size);
 
 const selectedSessions = computed(() => {
     if (!selectedCell.value) {
@@ -127,10 +157,13 @@ const mobileProjectRows = computed(() => projectRows.value
     .filter((row) => row.daySessions.length > 0));
 
 function chooseCell(row, day) {
-    if (sessionsForCell(row, day.key).length === 0) {
+    if (!day) {
         return;
     }
 
+    editingSessionId.value = null;
+    startingCell.value = null;
+    formErrors.value = '';
     selectedCell.value = {
         projectKey: row.key,
         dayKey: day.key,
@@ -183,6 +216,201 @@ function isDeleting(sessionId) {
     return deletingSessionIds.value.includes(sessionId);
 }
 
+function isBusy(sessionId) {
+    return busySessionIds.value.includes(sessionId);
+}
+
+const weekDayKeys = computed(() => props.days.map((day) => day.key));
+
+function applySessionPayload(payload) {
+    if (!payload?.session) {
+        return;
+    }
+
+    const { session, server_now: serverNow } = payload;
+
+    if (serverNow) {
+        liveServerNow.value = serverNow;
+    }
+
+    const index = liveSessions.value.findIndex((item) => item.id === session.id);
+    const withinWeek = weekDayKeys.value.includes(session.day_key);
+
+    if (!withinWeek) {
+        if (index !== -1) {
+            liveSessions.value.splice(index, 1);
+        }
+
+        return;
+    }
+
+    if (index === -1) {
+        liveSessions.value.push(session);
+    } else {
+        liveSessions.value.splice(index, 1, session);
+    }
+}
+
+async function mutateSession(sessionId, request) {
+    if (sessionId !== null) {
+        busySessionIds.value.push(sessionId);
+    }
+
+    formErrors.value = '';
+
+    try {
+        const response = await request();
+        applySessionPayload(response.data);
+        statusMessage.value = response.data?.message || 'Timer session updated.';
+
+        return true;
+    } catch (error) {
+        formErrors.value = error?.response?.data?.message
+            || Object.values(error?.response?.data?.errors || {}).flat()[0]
+            || 'Failed to update timer session.';
+        statusMessage.value = formErrors.value;
+
+        return false;
+    } finally {
+        busySessionIds.value = busySessionIds.value.filter((id) => id !== sessionId);
+    }
+}
+
+function pauseSession(session) {
+    return mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/pause`));
+}
+
+function resumeSession(session) {
+    return mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/resume`));
+}
+
+function stopSession(session) {
+    return mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/stop`));
+}
+
+function restartSession(session) {
+    return mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/restart`));
+}
+
+function detachInvoice(session) {
+    return mutateSession(session.id, () => axios.delete(`/timer/sessions/${session.id}/invoice`));
+}
+
+const projectTasks = computed(() => {
+    const projectId = selectedProject.value?.projectId;
+
+    if (!projectId) {
+        return props.tasks || [];
+    }
+
+    return (props.tasks || []).filter((task) => String(task.project_id) === String(projectId));
+});
+
+const attachableInvoices = computed(() => {
+    const clientId = selectedProject.value?.sessions?.[0]?.client_id;
+
+    if (!clientId) {
+        return props.draftInvoices || [];
+    }
+
+    return (props.draftInvoices || []).filter((invoice) => String(invoice.client_id) === String(clientId));
+});
+
+function startEditing(session) {
+    startingCell.value = null;
+    formErrors.value = '';
+    editingSessionId.value = session.id;
+    editForm.task_id = session.task_id ? String(session.task_id) : '';
+    editForm.session_date = session.day_key;
+    editForm.duration_minutes = String(Math.max(1, Math.round(sessionDuration(session) / 60)));
+    editForm.invoice_id = session.invoice_id ? String(session.invoice_id) : '';
+}
+
+function cancelEditing() {
+    editingSessionId.value = null;
+    formErrors.value = '';
+}
+
+async function saveEdit(session) {
+    const payload = {};
+
+    if (editForm.task_id && String(editForm.task_id) !== String(session.task_id)) {
+        payload.task_id = Number(editForm.task_id);
+    }
+
+    if (editForm.session_date && editForm.session_date !== session.day_key) {
+        payload.session_date = editForm.session_date;
+    }
+
+    const nextMinutes = Number(editForm.duration_minutes);
+    const currentMinutes = Math.round(sessionDuration(session) / 60);
+
+    if (Number.isFinite(nextMinutes) && nextMinutes > 0 && nextMinutes !== currentMinutes) {
+        payload.duration_minutes = nextMinutes;
+    }
+
+    if (Object.keys(payload).length === 0) {
+        cancelEditing();
+
+        return;
+    }
+
+    const saved = await mutateSession(session.id, () => axios.patch(`/timer/sessions/${session.id}`, payload));
+
+    if (saved) {
+        editingSessionId.value = null;
+    }
+}
+
+async function attachInvoice(session, invoiceId) {
+    if (!invoiceId) {
+        return;
+    }
+
+    await mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/invoice`, {
+        invoice_id: Number(invoiceId),
+    }));
+}
+
+const hasActiveSession = computed(() => liveSessions.value.some((session) => (session.is_running || session.is_paused) && session.can_operate));
+
+function openStartTimer() {
+    if (!selectedCell.value) {
+        return;
+    }
+
+    editingSessionId.value = null;
+    formErrors.value = '';
+    startingCell.value = { ...selectedCell.value };
+    startForm.task_id = projectTasks.value[0] ? String(projectTasks.value[0].id) : '';
+}
+
+function cancelStartTimer() {
+    startingCell.value = null;
+    formErrors.value = '';
+}
+
+async function startTimer() {
+    if (!startingCell.value || !startForm.task_id) {
+        formErrors.value = 'Select a task before starting a timer.';
+
+        return;
+    }
+
+    startingTimer.value = true;
+
+    const started = await mutateSession(null, () => axios.post('/timer/sessions', {
+        task_id: Number(startForm.task_id),
+        session_date: startingCell.value.dayKey,
+    }));
+
+    startingTimer.value = false;
+
+    if (started) {
+        startingCell.value = null;
+    }
+}
+
 async function deleteSession(session) {
     if (!session.can_delete || !window.confirm(`Delete timer session #${session.id}? This cannot be undone.`)) {
         return;
@@ -193,7 +421,7 @@ async function deleteSession(session) {
     try {
         const response = await axios.delete(`/timer/${session.id}`);
         statusMessage.value = response.data.message || 'Timer session deleted.';
-        router.reload({ only: ['sessions', 'serverNow'] });
+        liveSessions.value = liveSessions.value.filter((item) => item.id !== session.id);
     } catch (error) {
         statusMessage.value = error?.response?.data?.message || 'Failed to delete timer session.';
     } finally {
@@ -211,6 +439,9 @@ function invoiceLabel(session) {
 
 watch(() => props.weekStart, () => {
     selectedCell.value = null;
+    editingSessionId.value = null;
+    startingCell.value = null;
+    formErrors.value = '';
     selectedDayKey.value = props.days.find((day) => day.is_today)?.key || props.days[0]?.key || '';
 });
 
@@ -280,7 +511,7 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="border-b border-gray-200 p-4 dark:border-gray-800 sm:border-b-0 sm:border-r">
                         <p class="text-xs text-gray-500">Sessions</p>
-                        <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ sessions.length }}</p>
+                        <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ allSessions.length }}</p>
                     </div>
                     <div class="border-r border-gray-200 p-4 dark:border-gray-800">
                         <p class="text-xs text-gray-500">Active days</p>
@@ -346,8 +577,10 @@ onBeforeUnmount(() => {
                                     <button
                                         type="button"
                                         class="h-14 w-full rounded-md text-center transition"
-                                        :class="sessionsForCell(row, day.key).length ? 'bg-gray-100 text-gray-950 hover:bg-emerald-100 dark:bg-gray-900 dark:text-white dark:hover:bg-emerald-950' : 'cursor-default text-gray-300 dark:text-gray-700'"
-                                        :disabled="sessionsForCell(row, day.key).length === 0"
+                                        :class="[
+                                            sessionsForCell(row, day.key).length ? 'bg-gray-100 text-gray-950 hover:bg-emerald-100 dark:bg-gray-900 dark:text-white dark:hover:bg-emerald-950' : 'text-gray-300 hover:bg-gray-50 dark:text-gray-700 dark:hover:bg-gray-900',
+                                            selectedCell && selectedCell.projectKey === row.key && selectedCell.dayKey === day.key ? 'ring-2 ring-emerald-500' : '',
+                                        ]"
                                         @click="chooseCell(row, day)"
                                     >
                                         <span class="block text-sm font-semibold">{{ sessionsForCell(row, day.key).length ? formatDuration(cellDuration(row, day.key)) : '—' }}</span>
@@ -381,39 +614,114 @@ onBeforeUnmount(() => {
                     </div>
                 </section>
 
-                <section v-if="selectedCell && selectedSessions.length" class="border-t border-gray-300 pt-5 dark:border-gray-700">
+                <section v-if="selectedCell" class="border-t border-gray-300 pt-5 dark:border-gray-700">
                     <div class="flex items-center justify-between gap-4">
                         <div>
                             <h2 class="text-lg font-semibold text-gray-950 dark:text-white">{{ selectedProject?.projectName }}</h2>
-                            <p class="text-sm text-gray-500">{{ selectedDay?.full_label }} · {{ formatDuration(selectedSessions.reduce((total, session) => total + sessionDuration(session), 0)) }}</p>
+                            <p class="text-sm text-gray-500">{{ selectedDay?.full_label }} · {{ formatPreciseDuration(selectedSessions.reduce((total, session) => total + sessionDuration(session), 0)) }}</p>
                         </div>
-                        <button type="button" class="text-sm font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white" @click="selectedCell = null">Close</button>
+                        <div class="flex items-center gap-3">
+                            <button
+                                v-if="canCreateSessions && !startingCell"
+                                type="button"
+                                class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                :disabled="hasActiveSession"
+                                :title="hasActiveSession ? 'Stop your active timer before starting another' : 'Start a timer on this project'"
+                                @click="openStartTimer"
+                            >
+                                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                                Start timer
+                            </button>
+                            <button type="button" class="text-sm font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white" @click="selectedCell = null">Close</button>
+                        </div>
                     </div>
 
+                    <p v-if="formErrors" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{{ formErrors }}</p>
+
+                    <form v-if="startingCell" class="relative mt-3 flex flex-col gap-3 rounded-lg border border-emerald-300 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20 sm:flex-row sm:items-end" @submit.prevent="startTimer">
+                        <p class="absolute right-4 top-3 text-xs text-gray-500">Timer runs from now and is recorded on {{ selectedDay?.full_label }}.</p>
+                        <label class="flex-1 text-xs font-semibold uppercase text-gray-500">
+                            Task
+                            <select v-model="startForm.task_id" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white">
+                                <option value="">Select a task</option>
+                                <option v-for="task in projectTasks" :key="task.id" :value="String(task.id)">{{ task.name }}</option>
+                            </select>
+                        </label>
+                        <div class="flex items-center gap-3">
+                            <button type="submit" class="rounded-lg bg-gray-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-gray-950" :disabled="startingTimer">Start</button>
+                            <button type="button" class="text-sm font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white" @click="cancelStartTimer">Cancel</button>
+                        </div>
+                    </form>
+
                     <div class="mt-3 divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-                        <article v-for="session in selectedSessions" :key="session.id" class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ session.task_name }}</p>
-                                    <span v-if="session.is_running" class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">Running</span>
-                                    <span v-else-if="session.is_paused" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Paused</span>
-                                    <span v-else-if="session.invoice_locked" class="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">Locked</span>
+                        <article v-for="session in selectedSessions" :key="session.id" class="py-4">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ session.task_name }}</p>
+                                        <span v-if="session.is_running" class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">Running</span>
+                                        <span v-else-if="session.is_paused" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Paused</span>
+                                        <span v-else-if="session.invoice_locked" class="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">Locked</span>
+                                    </div>
+                                    <p class="mt-1 text-xs text-gray-500">{{ session.user_name }} · {{ session.started_time }}<span v-if="session.stopped_time">–{{ session.stopped_time }}</span> · {{ invoiceLabel(session) }}</p>
                                 </div>
-                                <p class="mt-1 text-xs text-gray-500">{{ session.user_name }} · {{ session.started_time }}<span v-if="session.stopped_time">–{{ session.stopped_time }}</span> · {{ invoiceLabel(session) }}</p>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono text-sm font-semibold text-gray-950 dark:text-white">{{ formatPreciseDuration(sessionDuration(session)) }}</span>
+
+                                    <button v-if="session.can_operate && session.is_running" type="button" class="rounded-lg border border-amber-300 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-60" :disabled="isBusy(session.id)" @click="pauseSession(session)">Pause</button>
+                                    <button v-if="session.can_operate && session.is_paused" type="button" class="rounded-lg border border-emerald-300 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60" :disabled="isBusy(session.id)" @click="resumeSession(session)">Resume</button>
+                                    <button v-if="session.can_operate && (session.is_running || session.is_paused)" type="button" class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200" :disabled="isBusy(session.id)" @click="stopSession(session)">Stop</button>
+                                    <button v-if="session.can_operate && !session.is_running && !session.is_paused && !session.invoice_locked" type="button" class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200" :disabled="isBusy(session.id)" @click="restartSession(session)">Restart</button>
+                                    <button v-if="session.can_update && !session.invoice_locked && !session.is_running && !session.is_paused" type="button" class="rounded-lg border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200" :disabled="isBusy(session.id)" @click="editingSessionId === session.id ? cancelEditing() : startEditing(session)">
+                                        {{ editingSessionId === session.id ? 'Cancel' : 'Edit' }}
+                                    </button>
+
+                                    <Link v-if="session.invoice_id" :href="route('invoices.show', session.invoice_id)" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-400">Invoice</Link>
+                                    <button v-if="session.can_delete" type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60" :disabled="isDeleting(session.id)" title="Delete timer session" aria-label="Delete timer session" @click="deleteSession(session)">
+                                        <span v-if="isDeleting(session.id)" class="text-[10px] font-semibold">...</span>
+                                        <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+                                    </button>
+                                </div>
                             </div>
-                            <div class="flex items-center gap-3">
-                                <span class="font-mono text-sm font-semibold text-gray-950 dark:text-white">{{ formatDuration(sessionDuration(session)) }}</span>
-                                <Link v-if="session.invoice_id" :href="route('invoices.show', session.invoice_id)" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-400">Invoice</Link>
-                                <button v-if="session.can_delete" type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60" :disabled="isDeleting(session.id)" title="Delete timer session" aria-label="Delete timer session" @click="deleteSession(session)">
-                                    <span v-if="isDeleting(session.id)" class="text-[10px] font-semibold">...</span>
-                                    <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
-                                </button>
-                            </div>
+
+                            <form v-if="editingSessionId === session.id" class="mt-3 grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900 sm:grid-cols-4" @submit.prevent="saveEdit(session)">
+                                <label class="text-xs font-semibold uppercase text-gray-500 sm:col-span-2">
+                                    Task
+                                    <select v-model="editForm.task_id" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white">
+                                        <option v-for="task in projectTasks" :key="task.id" :value="String(task.id)">{{ task.name }}</option>
+                                    </select>
+                                </label>
+                                <label class="text-xs font-semibold uppercase text-gray-500">
+                                    Date
+                                    <input v-model="editForm.session_date" type="date" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white">
+                                </label>
+                                <label class="text-xs font-semibold uppercase text-gray-500">
+                                    Minutes
+                                    <input v-model="editForm.duration_minutes" type="number" min="1" max="10080" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white">
+                                </label>
+
+                                <div class="flex flex-wrap items-center gap-3 sm:col-span-4">
+                                    <button type="submit" class="rounded-lg bg-gray-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-gray-950" :disabled="isBusy(session.id)">Save changes</button>
+
+                                    <template v-if="session.invoice_id">
+                                        <button type="button" class="text-sm font-semibold text-gray-600 hover:text-gray-950 disabled:opacity-60 dark:text-gray-300 dark:hover:text-white" :disabled="isBusy(session.id)" @click="detachInvoice(session)">Remove from invoice</button>
+                                    </template>
+                                    <template v-else-if="attachableInvoices.length">
+                                        <select v-model="editForm.invoice_id" class="rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white">
+                                            <option value="">Add to draft invoice…</option>
+                                            <option v-for="invoice in attachableInvoices" :key="invoice.id" :value="String(invoice.id)">INV{{ invoice.invoice_number || invoice.id }}</option>
+                                        </select>
+                                        <button type="button" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800 disabled:opacity-60 dark:text-emerald-400" :disabled="isBusy(session.id) || !editForm.invoice_id" @click="attachInvoice(session, editForm.invoice_id)">Attach</button>
+                                    </template>
+                                </div>
+                            </form>
                         </article>
+
+                        <p v-if="selectedSessions.length === 0" class="py-6 text-center text-sm text-gray-500">No sessions recorded in this cell yet.</p>
                     </div>
                 </section>
 
-                <p v-if="sessions.length === 0" class="rounded-lg border border-dashed border-gray-300 py-14 text-center text-sm text-gray-500 dark:border-gray-700">
+                <p v-if="allSessions.length === 0" class="rounded-lg border border-dashed border-gray-300 py-14 text-center text-sm text-gray-500 dark:border-gray-700">
                     No timer sessions match this week and filter selection.
                 </p>
             </div>
