@@ -365,6 +365,16 @@ function selectDay(dayKey) {
     }
 }
 
+function goToToday() {
+    if (currentViewMode.value === 'day') {
+        selectDay(props.dayNavigation?.current_day || props.selectedDate);
+
+        return;
+    }
+
+    goToWeek(props.navigation.current_week);
+}
+
 function applyFilters() {
     if (
         filterForm.project_id
@@ -400,21 +410,6 @@ function goToWeek(week) {
     router.get(route('timesheets.index'), {
         view: currentViewMode.value,
         week,
-        date: activeDayKey.value,
-        client_id: filterForm.client_id || undefined,
-        project_id: filterForm.project_id || undefined,
-        user_id: props.canViewTeamSessions ? (filterForm.user_id || undefined) : undefined,
-        invoice_status: filterForm.invoice_status || undefined,
-    }, {
-        preserveState: true,
-        preserveScroll: true,
-    });
-}
-
-function goToDay(date) {
-    router.get(route('timesheets.index'), {
-        view: 'day',
-        date,
         client_id: filterForm.client_id || undefined,
         project_id: filterForm.project_id || undefined,
         user_id: props.canViewTeamSessions ? (filterForm.user_id || undefined) : undefined,
@@ -787,7 +782,7 @@ onBeforeUnmount(() => {
                         </div>
 
                         <!-- Week Navigation Buttons -->
-                        <div v-if="currentViewMode === 'week'" class="flex items-center gap-1.5">
+                        <div class="flex items-center gap-1.5">
                             <button
                                 type="button"
                                 class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
@@ -797,8 +792,8 @@ onBeforeUnmount(() => {
                             >
                                 <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
                             </button>
-                            <button type="button" class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800" @click="goToWeek(navigation.current_week)">
-                                This week
+                            <button type="button" class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800" @click="goToToday">
+                                {{ currentViewMode === 'day' ? 'Today' : 'This week' }}
                             </button>
                             <button
                                 type="button"
@@ -806,35 +801,6 @@ onBeforeUnmount(() => {
                                 title="Next week"
                                 aria-label="Next week"
                                 @click="goToWeek(navigation.next_week)"
-                            >
-                                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
-                            </button>
-                        </div>
-
-                        <!-- Day Navigation Buttons -->
-                        <div v-else class="flex items-center gap-1.5">
-                            <button
-                                type="button"
-                                class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-                                title="Previous day"
-                                aria-label="Previous day"
-                                @click="goToDay(dayNavigation?.previous_day || activeDay.key)"
-                            >
-                                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-                            </button>
-                            <button
-                                type="button"
-                                class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-                                @click="goToDay(dayNavigation?.current_day || activeDay.key)"
-                            >
-                                Today
-                            </button>
-                            <button
-                                type="button"
-                                class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-                                title="Next day"
-                                aria-label="Next day"
-                                @click="goToDay(dayNavigation?.next_day || activeDay.key)"
                             >
                                 <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
                             </button>
