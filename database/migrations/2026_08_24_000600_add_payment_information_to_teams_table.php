@@ -19,18 +19,34 @@ return new class extends Migration
             $table->string('bank_account_number', 64)->nullable()->after('bsb_code');
         });
 
-        DB::table('teams')
-            ->join('users', 'users.id', '=', 'teams.user_id')
-            ->whereNull('teams.bank_account_name')
-            ->whereNull('teams.bank_name')
-            ->whereNull('teams.bsb_code')
-            ->whereNull('teams.bank_account_number')
-            ->update([
-                'teams.bank_account_name' => DB::raw('users.bank_account_name'),
-                'teams.bank_name' => DB::raw('users.bank_name'),
-                'teams.bsb_code' => DB::raw('users.bsb_code'),
-                'teams.bank_account_number' => DB::raw('users.bank_account_number'),
-            ]);
+        if (Schema::hasColumn('users', 'bank_account_name')) {
+            DB::table('teams')
+                ->join('users', 'users.id', '=', 'teams.user_id')
+                ->select([
+                    'teams.id',
+                    'users.bank_account_name',
+                    'users.bank_name',
+                    'users.bsb_code',
+                    'users.bank_account_number',
+                ])
+                ->whereNull('teams.bank_account_name')
+                ->whereNull('teams.bank_name')
+                ->whereNull('teams.bsb_code')
+                ->whereNull('teams.bank_account_number')
+                ->orderBy('teams.id')
+                ->chunk(100, function ($rows): void {
+                    foreach ($rows as $row) {
+                        DB::table('teams')
+                            ->where('id', $row->id)
+                            ->update([
+                                'bank_account_name' => $row->bank_account_name,
+                                'bank_name' => $row->bank_name,
+                                'bsb_code' => $row->bsb_code,
+                                'bank_account_number' => $row->bank_account_number,
+                            ]);
+                    }
+                });
+        }
     }
 
     /**

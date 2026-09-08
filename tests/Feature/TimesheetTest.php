@@ -67,6 +67,42 @@ class TimesheetTest extends TestCase
                 ->where('sessions.0.day_key', '2026-09-07'));
     }
 
+    public function test_day_view_returns_expected_props_and_day_navigation(): void
+    {
+        $user = User::factory()->withPersonalTeam()->create();
+        $this->createSession($user, '2026-09-08 10:00:00');
+
+        $this->actingAs($user)
+            ->get(route('timesheets.index', ['view' => 'day', 'date' => '2026-09-08']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('view', 'day')
+                ->where('selectedDate', '2026-09-08')
+                ->where('weekStart', '2026-09-07')
+                ->where('dayNavigation.previous_day', '2026-09-07')
+                ->where('dayNavigation.next_day', '2026-09-09')
+                ->has('sessions', 1));
+    }
+
+    public function test_active_running_timer_is_included_in_active_timer_session_prop(): void
+    {
+        $user = User::factory()->withPersonalTeam()->create();
+        $runningSession = TimerSession::create([
+            'user_id' => $user->id,
+            'team_id' => $user->currentTeam->id,
+            'started_at' => '2026-09-01 10:00:00',
+            'active_started_at' => '2026-09-01 10:00:00',
+            'accumulated_seconds' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('timesheets.index', ['view' => 'day', 'date' => '2026-09-08']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('activeTimerSession.id', $runningSession->id)
+                ->where('activeTimerSession.is_running', true));
+    }
+
     private function addTeamMember(User $owner, string $role): User
     {
         $user = User::factory()->create([

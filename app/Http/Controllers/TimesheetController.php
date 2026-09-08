@@ -34,6 +34,8 @@ class TimesheetController extends Controller
         Gate::authorize('viewAny', TimerSession::class);
 
         $validated = $request->validate([
+            'view' => ['nullable', 'in:week,day'],
+            'date' => ['nullable', 'date'],
             'week' => ['nullable', 'date'],
             'client_id' => ['nullable', 'integer'],
             'project_id' => ['nullable', 'integer'],
@@ -46,7 +48,12 @@ class TimesheetController extends Controller
 
         $team = $user->currentTeam;
         $timezone = (string) ($team->timezone ?: 'UTC');
-        $weekStart = CarbonImmutable::parse($validated['week'] ?? 'now', $timezone)
+
+        $currentView = (string) ($validated['view'] ?? 'week');
+        $targetDate = CarbonImmutable::parse($validated['date'] ?? $validated['week'] ?? 'now', $timezone);
+        $selectedDate = $targetDate->toDateString();
+
+        $weekStart = $targetDate
             ->startOfWeek(CarbonInterface::MONDAY)
             ->startOfDay();
         $weekEndExclusive = $weekStart->addWeek();
@@ -101,6 +108,18 @@ class TimesheetController extends Controller
             ->map(fn (TimerSession $session): array => $this->presenter->present($session, $timezone, $generatedAt))
             ->values();
 
+        $activeTimerSession = TimerSession::query()
+            ->where('team_id', $team->id)
+            ->where('user_id', $user->id)
+            ->whereNull('stopped_at')
+            ->with(TimesheetSessionPresenter::RELATIONS)
+            ->latest('started_at')
+            ->first();
+
+        $presentedActiveTimer = $activeTimerSession
+            ? $this->presenter->present($activeTimerSession, $timezone, $generatedAt)
+            : null;
+
         $memberIds = DB::table('team_user')->where('team_id', $team->id)->pluck('user_id');
         $memberIds->push($team->user_id);
         $teamMembers = $canViewTeamSessions
@@ -111,11 +130,13 @@ class TimesheetController extends Controller
             : collect([['id' => (int) $user->id, 'name' => (string) $user->name]]);
 
         return Inertia::render('Timesheets/Weekly', [
+            'view' => $currentView,
+            'selectedDate' => $selectedDate,
             'weekStart' => $weekStart->toDateString(),
             'weekEnd' => $weekEndExclusive->subDay()->toDateString(),
             'timezone' => $timezone,
             'serverNow' => $generatedAt->toIso8601String(),
-            'days' => collect(range(0, 6))->map(function (int $offset) use ($weekStart): array {
+            'days' => collect(range(0, 6))->map(function (int $offset) use ($weekStart, $selectedDate): array {
                 $day = $weekStart->addDays($offset);
 
                 return [
@@ -124,9 +145,11 @@ class TimesheetController extends Controller
                     'date_label' => $day->format('j M'),
                     'full_label' => $day->format('l, j F'),
                     'is_today' => $day->isToday(),
+                    'is_selected' => $day->toDateString() === $selectedDate,
                 ];
             })->all(),
             'sessions' => $sessions,
+            'activeTimerSession' => $presentedActiveTimer,
             'clients' => Client::query()
                 ->where('team_id', $team->id)
                 ->orderBy('name')
@@ -149,6 +172,8 @@ class TimesheetController extends Controller
             'teamMembers' => $teamMembers,
             'canViewTeamSessions' => $canViewTeamSessions,
             'filters' => [
+                'view' => $currentView,
+                'date' => $selectedDate,
                 'client_id' => isset($validated['client_id']) ? (int) $validated['client_id'] : null,
                 'project_id' => isset($validated['project_id']) ? (int) $validated['project_id'] : null,
                 'user_id' => $selectedUserId,
@@ -158,6 +183,11 @@ class TimesheetController extends Controller
                 'previous_week' => $weekStart->subWeek()->toDateString(),
                 'current_week' => CarbonImmutable::now($timezone)->startOfWeek(CarbonInterface::MONDAY)->toDateString(),
                 'next_week' => $weekStart->addWeek()->toDateString(),
+            ],
+            'dayNavigation' => [
+                'previous_day' => $targetDate->subDay()->toDateString(),
+                'current_day' => CarbonImmutable::now($timezone)->toDateString(),
+                'next_day' => $targetDate->addDay()->toDateString(),
             ],
         ]);
     }

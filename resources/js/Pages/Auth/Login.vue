@@ -21,13 +21,11 @@ const form = useForm({
 });
 
 const submit = () => {
-    axios.get('/sanctum/csrf-cookie').then(response => {
-        form.transform(data => ({
-            ...data,
-            remember: form.remember ? 'on' : '',
-        })).post(route('login'), {
-            onFinish: () => form.reset('password'),
-        });
+    form.transform(data => ({
+        ...data,
+        remember: form.remember ? 'on' : '',
+    })).post(route('login', [], false), {
+        onFinish: () => form.reset('password'),
     });
 };
 </script>
