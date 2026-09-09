@@ -1,7 +1,9 @@
 <script setup>
+import { computed, ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Daily from './Daily.vue';
+import StartTimerModal from './Partials/StartTimerModal.vue';
 import Weekly from './Weekly.vue';
 import { useTimesheetSessions } from './composables/useTimesheetSessions';
 
@@ -31,6 +33,16 @@ const props = defineProps({
 });
 
 const state = useTimesheetSessions(props);
+const controlsOpen = ref(false);
+const activeFilterCount = computed(() => {
+    return [
+        state.filterForm.client_id,
+        state.filterForm.project_id,
+        state.filterForm.user_id,
+        state.filterForm.invoice_status,
+        state.showWeekends ? '' : 'weekdays-only',
+    ].filter(Boolean).length;
+});
 </script>
 
 <template>
@@ -56,6 +68,16 @@ const state = useTimesheetSessions(props);
                     </div>
 
                     <div class="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-500 transition hover:text-gray-950 dark:text-gray-400 dark:hover:text-white"
+                            :aria-expanded="controlsOpen"
+                            @click="controlsOpen = !controlsOpen"
+                        >
+                            Filters
+                            <span v-if="activeFilterCount" class="text-emerald-700 dark:text-emerald-300">({{ activeFilterCount }})</span>
+                        </button>
+
                         <div class="inline-flex rounded-lg bg-gray-200 p-0.5 dark:bg-gray-800" role="group" aria-label="Timesheet view mode">
                             <button
                                 type="button"
@@ -98,20 +120,22 @@ const state = useTimesheetSessions(props);
                                 <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
                             </button>
                         </div>
+
+                        <button
+                            v-if="state.currentViewMode === 'day' && canCreateSessions"
+                            type="button"
+                            class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+                            :disabled="state.hasActiveSession"
+                            :title="state.hasActiveSession ? 'Stop your active timer before starting another' : 'Start recording time'"
+                            @click="state.openDayStartTimer"
+                        >
+                            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                            Start timer
+                        </button>
                     </div>
                 </header>
 
-                <details class="group rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
-                    <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-sm font-semibold text-gray-800 transition hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-900">
-                        <span>Stats & filters</span>
-                        <span class="flex items-center gap-3 text-xs font-medium text-gray-500 dark:text-gray-400">
-                            <span v-if="state.currentViewMode === 'day'">{{ state.formatPreciseDuration(state.currentDayDuration) }} · {{ state.currentDaySessions.length }} session{{ state.currentDaySessions.length === 1 ? '' : 's' }}</span>
-                            <span v-else>{{ state.formatDuration(state.weekDuration) }} · {{ state.allSessions.length }} session{{ state.allSessions.length === 1 ? '' : 's' }}</span>
-                            <svg viewBox="0 0 24 24" class="h-4 w-4 transition group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-                        </span>
-                    </summary>
-
-                    <div class="border-t border-gray-200 dark:border-gray-800">
+                <section v-if="controlsOpen" class="rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
                         <section class="grid grid-cols-2 border-b border-gray-200 dark:border-gray-800 sm:grid-cols-4">
                             <template v-if="state.currentViewMode === 'day'">
                                 <div class="border-b border-r border-gray-200 p-4 dark:border-gray-800 sm:border-b-0">
@@ -180,10 +204,10 @@ const state = useTimesheetSessions(props);
                                     <button type="button" class="text-sm font-semibold text-gray-600 hover:text-gray-950 dark:text-gray-300 dark:hover:text-white" @click="state.clearFilters">Clear</button>
                                 </div>
                             </div>
-                            <p v-if="state.statusMessage" class="mt-3 text-sm text-gray-700 dark:text-gray-200">{{ state.statusMessage }}</p>
                         </section>
-                    </div>
-                </details>
+                </section>
+
+                <p v-if="state.statusMessage" class="text-sm text-gray-700 dark:text-gray-200">{{ state.statusMessage }}</p>
 
                 <div v-if="state.activeTimerRunningElsewhere" class="flex flex-col items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 sm:flex-row sm:items-center">
                     <div class="flex items-center gap-3">
@@ -210,6 +234,14 @@ const state = useTimesheetSessions(props);
 
                 <Daily v-if="state.currentViewMode === 'day'" :state="state" :page="props" />
                 <Weekly v-else :state="state" :page="props" />
+
+                <StartTimerModal
+                    :show="state.dayStartModalOpen"
+                    :state="state"
+                    source="day"
+                    :day-label="state.activeDay.full_label"
+                    show-project
+                />
             </div>
         </div>
     </AppLayout>

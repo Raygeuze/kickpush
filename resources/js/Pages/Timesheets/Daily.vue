@@ -1,6 +1,5 @@
 <script setup>
 import SessionRow from './Partials/SessionRow.vue';
-import StartTimerModal from './Partials/StartTimerModal.vue';
 
 const props = defineProps({
     state: {
@@ -48,31 +47,6 @@ const props = defineProps({
                 </button>
             </div>
         </section>
-
-        <section v-if="page.canCreateSessions" class="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-white p-4 dark:border-emerald-900 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-                <h3 class="text-sm font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">Session recording</h3>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Start a timer for {{ state.activeDay.full_label }}.</p>
-            </div>
-            <button
-                type="button"
-                class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
-                :disabled="state.hasActiveSession"
-                :title="state.hasActiveSession ? 'Stop your active timer before starting another' : 'Start recording time'"
-                @click="state.openDayStartTimer"
-            >
-                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                Start timer
-            </button>
-        </section>
-
-        <StartTimerModal
-            :show="state.dayStartModalOpen"
-            :state="state"
-            source="day"
-            :day-label="state.activeDay.full_label"
-            show-project
-        />
 
         <p v-if="state.formErrors" class="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{{ state.formErrors }}</p>
 
