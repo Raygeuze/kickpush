@@ -8,7 +8,7 @@ import { useTimesheetSessions } from './composables/useTimesheetSessions';
 const props = defineProps({
     view: {
         type: String,
-        default: 'week',
+        default: 'day',
     },
     selectedDate: String,
     weekStart: String,
@@ -60,18 +60,18 @@ const state = useTimesheetSessions(props);
                             <button
                                 type="button"
                                 class="rounded-md px-3 py-1.5 text-xs font-semibold transition"
-                                :class="state.currentViewMode === 'week' ? 'bg-white text-gray-950 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white'"
-                                @click="state.setViewMode('week')"
-                            >
-                                Week
-                            </button>
-                            <button
-                                type="button"
-                                class="rounded-md px-3 py-1.5 text-xs font-semibold transition"
                                 :class="state.currentViewMode === 'day' ? 'bg-white text-gray-950 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white'"
                                 @click="state.setViewMode('day')"
                             >
                                 Day
+                            </button>
+                            <button
+                                type="button"
+                                class="rounded-md px-3 py-1.5 text-xs font-semibold transition"
+                                :class="state.currentViewMode === 'week' ? 'bg-white text-gray-950 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white'"
+                                @click="state.setViewMode('week')"
+                            >
+                                Week
                             </button>
                         </div>
 

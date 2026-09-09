@@ -49,7 +49,7 @@ class TimesheetController extends Controller
         $team = $user->currentTeam;
         $timezone = (string) ($team->timezone ?: 'UTC');
 
-        $currentView = (string) ($validated['view'] ?? 'week');
+        $currentView = (string) ($validated['view'] ?? 'day');
         $targetDate = CarbonImmutable::parse($validated['date'] ?? $validated['week'] ?? 'now', $timezone);
         $selectedDate = $targetDate->toDateString();
 

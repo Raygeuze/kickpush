@@ -2,7 +2,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { router } from '@inertiajs/vue3';
 
 export function useTimesheetSessions(props) {
-    const currentViewMode = ref(props.view || props.filters?.view || 'week');
+    const currentViewMode = ref(props.view || props.filters?.view || 'day');
     const activeDayKey = ref(
         props.selectedDate
         || props.filters?.date
