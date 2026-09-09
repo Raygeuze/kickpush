@@ -129,7 +129,7 @@ class TimesheetController extends Controller
                 ->get(['id', 'name'])
             : collect([['id' => (int) $user->id, 'name' => (string) $user->name]]);
 
-        return Inertia::render('Timesheets/Weekly', [
+        return Inertia::render('Timesheets/Index', [
             'view' => $currentView,
             'selectedDate' => $selectedDate,
             'weekStart' => $weekStart->toDateString(),

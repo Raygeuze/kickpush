@@ -24,7 +24,7 @@ class TimesheetTest extends TestCase
             ->get(route('timesheets.index', ['week' => '2026-09-07']))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->component('Timesheets/Weekly')
+                ->component('Timesheets/Index')
                 ->where('canViewTeamSessions', false)
                 ->has('sessions', 1)
                 ->where('sessions.0.id', $ownSession->id));
