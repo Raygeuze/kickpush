@@ -101,76 +101,89 @@ const state = useTimesheetSessions(props);
                     </div>
                 </header>
 
-                <section class="grid grid-cols-2 border-y border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950 sm:grid-cols-4">
-                    <template v-if="state.currentViewMode === 'day'">
-                        <div class="border-b border-r border-gray-200 p-4 dark:border-gray-800 sm:border-b-0">
-                            <p class="text-xs text-gray-500">Day total</p>
-                            <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.formatPreciseDuration(state.currentDayDuration) }}</p>
-                        </div>
-                        <div class="border-b border-gray-200 p-4 dark:border-gray-800 sm:border-b-0 sm:border-r">
-                            <p class="text-xs text-gray-500">Sessions</p>
-                            <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.currentDaySessions.length }}</p>
-                        </div>
-                        <div class="border-r border-gray-200 p-4 dark:border-gray-800">
-                            <p class="text-xs text-gray-500">Projects active</p>
-                            <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.currentDayProjectsCount }}</p>
-                        </div>
-                        <div class="p-4">
-                            <p class="text-xs text-gray-500">Open sessions</p>
-                            <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.currentDayRunningCount }}</p>
-                        </div>
-                    </template>
-                    <template v-else>
-                        <div class="border-b border-r border-gray-200 p-4 dark:border-gray-800 sm:border-b-0">
-                            <p class="text-xs text-gray-500">Week total</p>
-                            <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.formatDuration(state.weekDuration) }}</p>
-                        </div>
-                        <div class="border-b border-gray-200 p-4 dark:border-gray-800 sm:border-b-0 sm:border-r">
-                            <p class="text-xs text-gray-500">Sessions</p>
-                            <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.allSessions.length }}</p>
-                        </div>
-                        <div class="border-r border-gray-200 p-4 dark:border-gray-800">
-                            <p class="text-xs text-gray-500">Active days</p>
-                            <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.activeDaysCount }}</p>
-                        </div>
-                        <div class="p-4">
-                            <p class="text-xs text-gray-500">Open sessions</p>
-                            <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.activeSessionsCount }}</p>
-                        </div>
-                    </template>
-                </section>
+                <details class="group rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+                    <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-sm font-semibold text-gray-800 transition hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-900">
+                        <span>Stats & filters</span>
+                        <span class="flex items-center gap-3 text-xs font-medium text-gray-500 dark:text-gray-400">
+                            <span v-if="state.currentViewMode === 'day'">{{ state.formatPreciseDuration(state.currentDayDuration) }} · {{ state.currentDaySessions.length }} session{{ state.currentDaySessions.length === 1 ? '' : 's' }}</span>
+                            <span v-else>{{ state.formatDuration(state.weekDuration) }} · {{ state.allSessions.length }} session{{ state.allSessions.length === 1 ? '' : 's' }}</span>
+                            <svg viewBox="0 0 24 24" class="h-4 w-4 transition group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                        </span>
+                    </summary>
 
-                <section class="border-b border-gray-200 pb-5 dark:border-gray-800">
-                    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                        <select v-model="state.filterForm.client_id" class="rounded-lg border-gray-300 bg-white text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white" @change="state.applyFilters">
-                            <option value="">All clients</option>
-                            <option v-for="client in clients" :key="client.id" :value="String(client.id)">{{ client.name }}</option>
-                        </select>
-                        <select v-model="state.filterForm.project_id" class="rounded-lg border-gray-300 bg-white text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white" @change="state.applyFilters">
-                            <option value="">All projects</option>
-                            <option v-for="project in state.filteredProjects" :key="project.id" :value="String(project.id)">{{ project.name }}</option>
-                        </select>
-                        <select v-if="canViewTeamSessions" v-model="state.filterForm.user_id" class="rounded-lg border-gray-300 bg-white text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white" @change="state.applyFilters">
-                            <option value="">All members</option>
-                            <option v-for="member in teamMembers" :key="member.id" :value="String(member.id)">{{ member.name }}</option>
-                        </select>
-                        <select v-model="state.filterForm.invoice_status" class="rounded-lg border-gray-300 bg-white text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white" @change="state.applyFilters">
-                            <option value="">All invoice states</option>
-                            <option value="unassigned">Unassigned</option>
-                            <option value="draft">Draft</option>
-                            <option value="finalized">Finalized</option>
-                            <option value="paid">Paid</option>
-                        </select>
-                        <div class="flex items-center justify-between gap-3">
-                            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                                <input v-model="state.showWeekends" type="checkbox" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
-                                Weekends
-                            </label>
-                            <button type="button" class="text-sm font-semibold text-gray-600 hover:text-gray-950 dark:text-gray-300 dark:hover:text-white" @click="state.clearFilters">Clear</button>
-                        </div>
+                    <div class="border-t border-gray-200 dark:border-gray-800">
+                        <section class="grid grid-cols-2 border-b border-gray-200 dark:border-gray-800 sm:grid-cols-4">
+                            <template v-if="state.currentViewMode === 'day'">
+                                <div class="border-b border-r border-gray-200 p-4 dark:border-gray-800 sm:border-b-0">
+                                    <p class="text-xs text-gray-500">Day total</p>
+                                    <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.formatPreciseDuration(state.currentDayDuration) }}</p>
+                                </div>
+                                <div class="border-b border-gray-200 p-4 dark:border-gray-800 sm:border-b-0 sm:border-r">
+                                    <p class="text-xs text-gray-500">Sessions</p>
+                                    <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.currentDaySessions.length }}</p>
+                                </div>
+                                <div class="border-r border-gray-200 p-4 dark:border-gray-800">
+                                    <p class="text-xs text-gray-500">Projects active</p>
+                                    <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.currentDayProjectsCount }}</p>
+                                </div>
+                                <div class="p-4">
+                                    <p class="text-xs text-gray-500">Open sessions</p>
+                                    <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.currentDayRunningCount }}</p>
+                                </div>
+                            </template>
+                            <template v-else>
+                                <div class="border-b border-r border-gray-200 p-4 dark:border-gray-800 sm:border-b-0">
+                                    <p class="text-xs text-gray-500">Week total</p>
+                                    <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.formatDuration(state.weekDuration) }}</p>
+                                </div>
+                                <div class="border-b border-gray-200 p-4 dark:border-gray-800 sm:border-b-0 sm:border-r">
+                                    <p class="text-xs text-gray-500">Sessions</p>
+                                    <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.allSessions.length }}</p>
+                                </div>
+                                <div class="border-r border-gray-200 p-4 dark:border-gray-800">
+                                    <p class="text-xs text-gray-500">Active days</p>
+                                    <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.activeDaysCount }}</p>
+                                </div>
+                                <div class="p-4">
+                                    <p class="text-xs text-gray-500">Open sessions</p>
+                                    <p class="mt-1 text-2xl font-bold text-gray-950 dark:text-white">{{ state.activeSessionsCount }}</p>
+                                </div>
+                            </template>
+                        </section>
+
+                        <section class="p-4">
+                            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                                <select v-model="state.filterForm.client_id" class="rounded-lg border-gray-300 bg-white text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white" @change="state.applyFilters">
+                                    <option value="">All clients</option>
+                                    <option v-for="client in clients" :key="client.id" :value="String(client.id)">{{ client.name }}</option>
+                                </select>
+                                <select v-model="state.filterForm.project_id" class="rounded-lg border-gray-300 bg-white text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white" @change="state.applyFilters">
+                                    <option value="">All projects</option>
+                                    <option v-for="project in state.filteredProjects" :key="project.id" :value="String(project.id)">{{ project.name }}</option>
+                                </select>
+                                <select v-if="canViewTeamSessions" v-model="state.filterForm.user_id" class="rounded-lg border-gray-300 bg-white text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white" @change="state.applyFilters">
+                                    <option value="">All members</option>
+                                    <option v-for="member in teamMembers" :key="member.id" :value="String(member.id)">{{ member.name }}</option>
+                                </select>
+                                <select v-model="state.filterForm.invoice_status" class="rounded-lg border-gray-300 bg-white text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white" @change="state.applyFilters">
+                                    <option value="">All invoice states</option>
+                                    <option value="unassigned">Unassigned</option>
+                                    <option value="draft">Draft</option>
+                                    <option value="finalized">Finalized</option>
+                                    <option value="paid">Paid</option>
+                                </select>
+                                <div class="flex items-center justify-between gap-3">
+                                    <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                                        <input v-model="state.showWeekends" type="checkbox" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                                        Weekends
+                                    </label>
+                                    <button type="button" class="text-sm font-semibold text-gray-600 hover:text-gray-950 dark:text-gray-300 dark:hover:text-white" @click="state.clearFilters">Clear</button>
+                                </div>
+                            </div>
+                            <p v-if="state.statusMessage" class="mt-3 text-sm text-gray-700 dark:text-gray-200">{{ state.statusMessage }}</p>
+                        </section>
                     </div>
-                    <p v-if="state.statusMessage" class="mt-3 text-sm text-gray-700 dark:text-gray-200">{{ state.statusMessage }}</p>
-                </section>
+                </details>
 
                 <div v-if="state.activeTimerRunningElsewhere" class="flex flex-col items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 sm:flex-row sm:items-center">
                     <div class="flex items-center gap-3">
