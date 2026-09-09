@@ -38,6 +38,7 @@ export function useTimesheetSessions(props) {
 
     const dayStartForm = reactive({ project_id: '', task_id: '' });
     const startingDayTimer = ref(false);
+    const dayStartModalOpen = ref(false);
     const formErrors = ref('');
 
     watch(() => props.sessions, (next) => {
@@ -301,8 +302,15 @@ export function useTimesheetSessions(props) {
         };
     }
 
+    function chooseCellAndStart(row, day) {
+        chooseCell(row, day);
+        openStartTimer();
+    }
+
     function setViewMode(mode) {
         currentViewMode.value = mode;
+        dayStartModalOpen.value = false;
+        startingCell.value = null;
         router.get(route('timesheets.index'), routeParams({ view: mode }), {
             preserveState: true,
             preserveScroll: true,
@@ -562,8 +570,7 @@ export function useTimesheetSessions(props) {
             return;
         }
 
-        chooseCell(newEntryRow, day);
-        openStartTimer();
+        chooseCellAndStart(newEntryRow, day);
     }
 
     watch(() => startForm.project_id, () => {
@@ -574,6 +581,16 @@ export function useTimesheetSessions(props) {
 
     function cancelStartTimer() {
         startingCell.value = null;
+        formErrors.value = '';
+    }
+
+    function openDayStartTimer() {
+        formErrors.value = '';
+        dayStartModalOpen.value = true;
+    }
+
+    function cancelDayStartTimer() {
+        dayStartModalOpen.value = false;
         formErrors.value = '';
     }
 
@@ -625,6 +642,7 @@ export function useTimesheetSessions(props) {
         if (started) {
             dayStartForm.project_id = '';
             dayStartForm.task_id = '';
+            dayStartModalOpen.value = false;
         }
     }
 
@@ -658,6 +676,7 @@ export function useTimesheetSessions(props) {
         selectedCell.value = null;
         editingSessionId.value = null;
         startingCell.value = null;
+        dayStartModalOpen.value = false;
         formErrors.value = '';
         selectedDayKey.value = props.days.find((day) => day.is_today)?.key || props.days[0]?.key || '';
     });
@@ -696,6 +715,7 @@ export function useTimesheetSessions(props) {
         startingTimer,
         dayStartForm,
         startingDayTimer,
+        dayStartModalOpen,
         formErrors,
         visibleDays,
         filteredProjects,
@@ -729,6 +749,7 @@ export function useTimesheetSessions(props) {
         dayDuration,
         daySessionsCount,
         chooseCell,
+        chooseCellAndStart,
         setViewMode,
         selectDay,
         goToToday,
@@ -752,6 +773,8 @@ export function useTimesheetSessions(props) {
         openStartTimer,
         chooseNewEntryCell,
         cancelStartTimer,
+        openDayStartTimer,
+        cancelDayStartTimer,
         startTimer,
         startDayTimer,
         deleteSession,

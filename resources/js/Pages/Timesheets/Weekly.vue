@@ -1,5 +1,6 @@
 <script setup>
 import SessionRow from './Partials/SessionRow.vue';
+import StartTimerModal from './Partials/StartTimerModal.vue';
 
 const props = defineProps({
     state: {
@@ -41,7 +42,7 @@ const props = defineProps({
                                     state.sessionsForCell(row, day.key).length ? 'bg-gray-100 text-gray-950 hover:bg-emerald-100 dark:bg-gray-900 dark:text-white dark:hover:bg-emerald-950' : 'text-gray-300 hover:bg-gray-50 dark:text-gray-700 dark:hover:bg-gray-900',
                                     state.selectedCell && state.selectedCell.projectKey === row.key && state.selectedCell.dayKey === day.key ? 'ring-2 ring-emerald-500' : '',
                                 ]"
-                                @click="state.chooseCell(row, day)"
+                                @click="page.canCreateSessions && state.sessionsForCell(row, day.key).length === 0 ? state.chooseCellAndStart(row, day) : state.chooseCell(row, day)"
                             >
                                 <span class="block text-sm font-semibold">{{ state.sessionsForCell(row, day.key).length ? state.formatDuration(state.cellDuration(row, day.key)) : '-' }}</span>
                                 <span v-if="state.sessionsForCell(row, day.key).length" class="text-[11px] text-gray-500">{{ state.sessionsForCell(row, day.key).length }} session{{ state.sessionsForCell(row, day.key).length === 1 ? '' : 's' }}</span>
@@ -117,7 +118,7 @@ const props = defineProps({
                         type="button"
                         class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                         :disabled="state.hasActiveSession"
-                        :title="state.hasActiveSession ? 'Stop your active timer before starting another' : 'Start a timer on this project'"
+                        :title="state.hasActiveSession ? 'Stop your active timer before starting another' : 'Start another timer on this project'"
                         @click="state.openStartTimer"
                     >
                         <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
@@ -128,30 +129,6 @@ const props = defineProps({
             </div>
 
             <p v-if="state.formErrors" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{{ state.formErrors }}</p>
-
-            <form v-if="state.startingCell" class="relative mt-3 flex flex-col gap-3 rounded-lg border border-emerald-300 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20 sm:flex-row sm:items-end" @submit.prevent="state.startTimer">
-                <p class="absolute right-4 top-3 text-xs text-gray-500">Timer runs from now and is recorded on {{ state.selectedDay?.full_label }}.</p>
-                <label v-if="state.isNewEntryCell" class="flex-1 text-xs font-semibold uppercase text-gray-500">
-                    Project
-                    <select v-model="state.startForm.project_id" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white">
-                        <option value="">Select a project</option>
-                        <optgroup v-for="group in state.projectsByClient" :key="group.clientName" :label="group.clientName">
-                            <option v-for="project in group.projects" :key="project.id" :value="String(project.id)">{{ project.name }}</option>
-                        </optgroup>
-                    </select>
-                </label>
-                <label class="flex-1 text-xs font-semibold uppercase text-gray-500">
-                    Task
-                    <select v-model="state.startForm.task_id" class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white">
-                        <option value="">Select a task</option>
-                        <option v-for="task in state.projectTasks" :key="task.id" :value="String(task.id)">{{ task.name }}</option>
-                    </select>
-                </label>
-                <div class="flex items-center gap-3">
-                    <button type="submit" class="rounded-lg bg-gray-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-gray-950" :disabled="state.startingTimer">Start</button>
-                    <button type="button" class="text-sm font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white" @click="state.cancelStartTimer">Cancel</button>
-                </div>
-            </form>
 
             <div class="mt-3 divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-800 dark:border-gray-800">
                 <SessionRow
@@ -170,5 +147,13 @@ const props = defineProps({
         <p v-if="state.allSessions.length === 0" class="rounded-lg border border-dashed border-gray-300 py-14 text-center text-sm text-gray-500 dark:border-gray-700">
             No timer sessions match this week and filter selection.
         </p>
+
+        <StartTimerModal
+            :show="!!state.startingCell"
+            :state="state"
+            source="week"
+            :day-label="state.selectedDay?.full_label || ''"
+            :show-project="state.isNewEntryCell"
+        />
     </div>
 </template>
