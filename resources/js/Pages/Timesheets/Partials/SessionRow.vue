@@ -65,7 +65,7 @@ const props = defineProps({
                     :disabled="state.isBusy(session.id)"
                     @click="state.restartSession(session)"
                 >
-                    Restart
+                    Start
                 </button>
 
                 <button
