@@ -6,7 +6,7 @@ export function useInvoicePageController(options) {
         initialAssignedSessions = [],
         initialClientTasks = [],
         initialAvailableSessions = [],
-        initialExpenses = [],
+        initialLineItems = [],
         initialSummary,
         currentUserId,
         canDeleteAnyTimerSession = false,
@@ -18,7 +18,7 @@ export function useInvoicePageController(options) {
     const assignedSessions = ref(initialAssignedSessions || []);
     const clientTasks = ref(initialClientTasks || []);
     const availableSessions = ref(initialAvailableSessions || []);
-    const expenses = ref(initialExpenses || []);
+    const lineItems = ref(initialLineItems || []);
     const summary = ref(initialSummary);
 
     const statusMessage = ref('');
@@ -28,13 +28,13 @@ export function useInvoicePageController(options) {
     const isSendingInvoiceEmail = ref(false);
     const isDeletingInvoice = ref(false);
     const isSavingDiscount = ref(false);
-    const isSubmittingExpense = ref(false);
+    const isSubmittingLineItem = ref(false);
     const isSubmittingManualSession = ref(false);
     const isInlineTimerLoading = ref(false);
     const isInlineTimerDeleting = ref(false);
 
     const busySessionIds = ref([]);
-    const busyExpenseIds = ref([]);
+    const busyLineItemIds = ref([]);
 
     const savingSessionDateIds = ref([]);
     const savingSessionDurationIds = ref([]);
@@ -49,9 +49,9 @@ export function useInvoicePageController(options) {
     const inlineElapsedSeconds = ref(0);
     const inlineActiveSessionId = ref(null);
 
-    const expenseName = ref('');
-    const expenseDescription = ref('');
-    const expenseAmount = ref('');
+    const lineItemName = ref('');
+    const lineItemDescription = ref('');
+    const lineItemAmount = ref('');
 
     const manualDurationMinutes = ref('');
     const selectedInlineProjectId = ref('');
@@ -350,8 +350,8 @@ export function useInvoicePageController(options) {
         return busySessionIds.value.includes(sessionId);
     }
 
-    function isExpenseBusy(expenseId) {
-        return busyExpenseIds.value.includes(expenseId);
+    function isLineItemBusy(lineItemId) {
+        return busyLineItemIds.value.includes(lineItemId);
     }
 
     function isSavingSessionDate(sessionId) {
@@ -514,7 +514,7 @@ export function useInvoicePageController(options) {
         ensureManualTaskSelection();
 
         availableSessions.value = data.available_sessions || [];
-        expenses.value = data.expenses || [];
+        lineItems.value = data.line_items || [];
         summary.value = data.summary || {
             sessions_count: 0,
             total_duration_seconds: 0,
@@ -1090,53 +1090,53 @@ export function useInvoicePageController(options) {
         }
     }
 
-    async function addExpense() {
-        if (isFinalized.value || isSubmittingExpense.value) {
+    async function addLineItem() {
+        if (isFinalized.value || isSubmittingLineItem.value) {
             return;
         }
 
-        if (!expenseAmount.value || Number(expenseAmount.value) <= 0) {
+        if (!lineItemAmount.value || Number(lineItemAmount.value) <= 0) {
             statusMessage.value = 'Enter a line item amount greater than 0.';
             return;
         }
 
-        isSubmittingExpense.value = true;
+        isSubmittingLineItem.value = true;
 
         try {
-            const response = await axios.post(`/invoices/${invoice.value.id}/expenses`, {
-                name: expenseName.value || null,
-                description: expenseDescription.value || null,
-                amount: Number(expenseAmount.value),
+            const response = await axios.post(`/invoices/${invoice.value.id}/line-items`, {
+                name: lineItemName.value || null,
+                description: lineItemDescription.value || null,
+                amount: Number(lineItemAmount.value),
             });
 
             applyPayload(response.data);
             statusMessage.value = response.data.message || 'Line item added to invoice.';
-            expenseName.value = '';
-            expenseDescription.value = '';
-            expenseAmount.value = '';
+            lineItemName.value = '';
+            lineItemDescription.value = '';
+            lineItemAmount.value = '';
         } catch (error) {
             statusMessage.value = error?.response?.data?.message || 'Failed to add line item.';
         } finally {
-            isSubmittingExpense.value = false;
+            isSubmittingLineItem.value = false;
         }
     }
 
-    async function removeExpense(expenseId) {
-        if (isFinalized.value || isExpenseBusy(expenseId)) {
+    async function removeLineItem(lineItemId) {
+        if (isFinalized.value || isLineItemBusy(lineItemId)) {
             return;
         }
 
-        busyExpenseIds.value.push(expenseId);
+        busyLineItemIds.value.push(lineItemId);
 
         try {
-            const response = await axios.delete(`/invoices/${invoice.value.id}/expenses/${expenseId}`);
+            const response = await axios.delete(`/invoices/${invoice.value.id}/line-items/${lineItemId}`);
 
             applyPayload(response.data);
             statusMessage.value = response.data.message || 'Line item removed from invoice.';
         } catch (error) {
             statusMessage.value = error?.response?.data?.message || 'Failed to remove line item.';
         } finally {
-            busyExpenseIds.value = busyExpenseIds.value.filter((id) => id !== expenseId);
+            busyLineItemIds.value = busyLineItemIds.value.filter((id) => id !== lineItemId);
         }
     }
 
@@ -1205,7 +1205,7 @@ export function useInvoicePageController(options) {
         assignedSessions,
         clientTasks,
         availableSessions,
-        expenses,
+        lineItems,
         summary,
 
         statusMessage,
@@ -1214,7 +1214,7 @@ export function useInvoicePageController(options) {
         isSendingInvoiceEmail,
         isDeletingInvoice,
         isSavingDiscount,
-        isSubmittingExpense,
+        isSubmittingLineItem,
         isSubmittingManualSession,
         isInlineTimerLoading,
         isInlineTimerDeleting,
@@ -1234,9 +1234,9 @@ export function useInvoicePageController(options) {
         isInlineTimerRunning,
         isInlineTimerActive,
 
-        expenseName,
-        expenseDescription,
-        expenseAmount,
+        lineItemName,
+        lineItemDescription,
+        lineItemAmount,
 
         isFinalized,
         isPaid,
@@ -1254,7 +1254,7 @@ export function useInvoicePageController(options) {
         toggleProjectSection,
 
         isBusy,
-        isExpenseBusy,
+        isLineItemBusy,
         isSavingSessionDate,
         isSavingSessionDuration,
         isSavingSessionTask,
@@ -1280,8 +1280,8 @@ export function useInvoicePageController(options) {
         emailInvoiceToClient,
         saveInvoiceDiscount,
 
-        addExpense,
-        removeExpense,
+        addLineItem,
+        removeLineItem,
 
         createManualSession,
         runInlinePrimaryAction,

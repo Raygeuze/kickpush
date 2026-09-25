@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\FinalizedInvoiceMail;
 use App\Models\BusinessExpense;
 use App\Models\Client;
-use App\Models\Expense;
+use App\Models\LineItem;
 use App\Models\FinancialYear;
 use App\Models\Invoice;
 use App\Models\Task;
@@ -283,7 +283,7 @@ class InvoiceController extends Controller
             'clientTasks' => $this->clientTasksForInvoice($invoice),
             'assignedSessions' => $this->assignedSessionsForInvoice($invoice),
             'availableSessions' => $this->availableConfirmedSessions($invoice),
-            'expenses' => $this->invoiceExpenses($invoice),
+            'lineItems' => $this->invoiceLineItems($invoice),
             'summary' => $this->invoiceSummary($invoice),
         ]);
     }
@@ -358,7 +358,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -373,7 +373,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($invoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($invoice),
             'available_sessions' => $this->availableConfirmedSessions($invoice),
-            'expenses' => $this->invoiceExpenses($invoice),
+            'line_items' => $this->invoiceLineItems($invoice),
             'summary' => $this->invoiceSummary($invoice),
         ]);
     }
@@ -420,7 +420,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($invoice->fresh()),
             'assigned_sessions' => $this->assignedSessionsForInvoice($invoice->fresh()),
             'available_sessions' => $this->availableConfirmedSessions($invoice->fresh()),
-            'expenses' => $this->invoiceExpenses($invoice->fresh()),
+            'line_items' => $this->invoiceLineItems($invoice->fresh()),
             'summary' => $this->invoiceSummary($invoice->fresh()),
         ]);
     }
@@ -559,7 +559,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -608,7 +608,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -654,7 +654,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -686,7 +686,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($invoice->fresh()),
             'assigned_sessions' => $this->assignedSessionsForInvoice($invoice->fresh()),
             'available_sessions' => $this->availableConfirmedSessions($invoice->fresh()),
-            'expenses' => $this->invoiceExpenses($invoice->fresh()),
+            'line_items' => $this->invoiceLineItems($invoice->fresh()),
             'summary' => $this->invoiceSummary($invoice->fresh()),
         ]);
     }
@@ -725,7 +725,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -769,7 +769,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -821,7 +821,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -860,7 +860,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -906,7 +906,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -925,7 +925,7 @@ class InvoiceController extends Controller
                 'invoice' => $this->formatInvoice($freshInvoice),
                 'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
                 'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-                'expenses' => $this->invoiceExpenses($freshInvoice),
+                'line_items' => $this->invoiceLineItems($freshInvoice),
                 'summary' => $this->invoiceSummary($freshInvoice),
             ]);
         }
@@ -947,7 +947,7 @@ class InvoiceController extends Controller
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -981,7 +981,7 @@ class InvoiceController extends Controller
                 ->where('invoice_id', $lockedInvoice->id)
                 ->update(['invoice_id' => null]);
 
-            Expense::query()->where('invoice_id', $lockedInvoice->id)->delete();
+            LineItem::query()->where('invoice_id', $lockedInvoice->id)->delete();
             $lockedInvoice->delete();
         });
 
@@ -990,7 +990,7 @@ class InvoiceController extends Controller
         ]);
     }
 
-    public function addExpense(Request $request, int $invoiceId): JsonResponse
+    public function addLineItem(Request $request, int $invoiceId): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
@@ -1003,7 +1003,7 @@ class InvoiceController extends Controller
             'amount' => 'required|numeric|min:0.01',
         ]);
 
-        $invoice->expenses()->create([
+        $invoice->lineItems()->create([
             'name' => $validated['name'] ?? null,
             'description' => $validated['description'] ?? null,
             'amount' => $validated['amount'],
@@ -1012,43 +1012,43 @@ class InvoiceController extends Controller
         $freshInvoice = $invoice->fresh();
 
         return response()->json([
-            'message' => 'Expense added to invoice.',
+            'message' => 'Line item added to invoice.',
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
 
-    public function removeExpense(int $invoiceId, int $expenseId): JsonResponse
+    public function removeLineItem(int $invoiceId, int $lineItemId): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $this->abortIfInvoiceFinalized($invoice);
 
-        $expense = Expense::query()
+        $lineItem = LineItem::query()
             ->where('invoice_id', $invoice->id)
-            ->whereKey($expenseId)
+            ->whereKey($lineItemId)
             ->first();
 
-        if (!$expense) {
+        if (!$lineItem) {
             return response()->json([
-                'message' => 'Expense not found for this invoice.',
+                'message' => 'Line item not found for this invoice.',
             ], 404);
         }
 
-        $expense->delete();
+        $lineItem->delete();
 
         $freshInvoice = $invoice->fresh();
 
         return response()->json([
-            'message' => 'Expense removed from invoice.',
+            'message' => 'Line item removed from invoice.',
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'expenses' => $this->invoiceExpenses($freshInvoice),
+            'line_items' => $this->invoiceLineItems($freshInvoice),
             'summary' => $this->invoiceSummary($freshInvoice),
         ]);
     }
@@ -1165,7 +1165,7 @@ class InvoiceController extends Controller
         $user = Auth::user();
         $team = $user ? $user->currentTeam : null;
         $summary = $this->invoiceSummary($freshInvoice);
-        $expenses = $this->invoiceExpenses($freshInvoice);
+        $lineItems = $this->invoiceLineItems($freshInvoice);
         $projectTotals = $this->invoiceProjectTotals($freshInvoice);
 
         $totalDurationSeconds = (int) ($summary['total_duration_seconds'] ?? 0);
@@ -1173,11 +1173,11 @@ class InvoiceController extends Controller
         $timeAmount = (float) ($summary['billable_time_amount'] ?? 0);
         $effectiveHourlyRate = $totalHours > 0 ? round($timeAmount / $totalHours, 2) : ($freshInvoice->client ? (float) $freshInvoice->client->hourly_rate : 0.0);
 
-        $expenseLines = $expenses->map(function (Expense $expense): array {
+        $lineItemRows = $lineItems->map(function (LineItem $lineItem): array {
             return [
-                'label' => $expense->name ?: 'One-off expense',
-                'description' => $expense->description,
-                'amount' => (float) $expense->amount,
+            'label' => $lineItem->name ?: 'One-off line item',
+            'description' => $lineItem->description,
+            'amount' => (float) $lineItem->amount,
             ];
         })->values()->all();
 
@@ -1187,7 +1187,7 @@ class InvoiceController extends Controller
                 'description' => $totalHours . ' hours @ blended $' . number_format($effectiveHourlyRate, 2) . '/hr',
                 'amount' => $timeAmount,
             ],
-        ], $expenseLines);
+        ], $lineItemRows);
 
         $discountAmount = (float) ($summary['discount_amount'] ?? 0);
 
@@ -1501,9 +1501,9 @@ class InvoiceController extends Controller
         abort_unless($user instanceof User && $user->currentTeam && $user->ownsTeam($user->currentTeam), 403, 'Only the team owner can access tax summary pages.');
     }
 
-    private function invoiceExpenses(Invoice $invoice)
+    private function invoiceLineItems(Invoice $invoice)
     {
-        return Expense::query()
+        return LineItem::query()
             ->where('invoice_id', $invoice->id)
             ->orderByDesc('created_at')
             ->get();
@@ -1522,7 +1522,7 @@ class InvoiceController extends Controller
 
         $sessionsCount = (int) $totals->sum('sessions_count');
         $totalDurationSeconds = (int) $totals->sum('total_duration_seconds');
-        $totalExpensesAmount = (float) (Expense::query()
+        $totalExpensesAmount = (float) (LineItem::query()
             ->where('invoice_id', $invoice->id)
             ->sum('amount'));
         $billableByInvoice = $this->calculateBillableTimeByInvoiceFromSessionRows($totals, [
@@ -2004,7 +2004,7 @@ class InvoiceController extends Controller
 
         $sessionsCount = (int) $sessionTotals->sum('sessions_count');
         $totalDurationSeconds = (int) $sessionTotals->sum('total_duration_seconds');
-        $expenseTotalsByInvoice = Expense::query()
+        $expenseTotalsByInvoice = LineItem::query()
             ->whereIn('invoice_id', $invoiceIds)
             ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as total_expenses_amount')
             ->groupBy('invoice_id')
@@ -2152,7 +2152,7 @@ class InvoiceController extends Controller
             ->groupBy('invoice_id', 'user_id', 'hourly_rate_snapshot')
             ->get();
 
-        $expenseTotals = Expense::query()
+        $expenseTotals = LineItem::query()
             ->whereIn('invoice_id', $invoiceIds)
             ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as total_expenses_amount')
             ->groupBy('invoice_id')

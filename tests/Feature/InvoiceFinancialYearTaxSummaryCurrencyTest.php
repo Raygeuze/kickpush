@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Client;
 use App\Models\BusinessExpense;
-use App\Models\Expense;
+use App\Models\LineItem;
 use App\Models\FinancialYear;
 use App\Models\Invoice;
 use App\Models\TimerSession;
@@ -121,13 +121,13 @@ class InvoiceFinancialYearTaxSummaryCurrencyTest extends TestCase
             'accumulated_seconds' => 0,
         ]);
 
-        Expense::create([
+        LineItem::create([
             'invoice_id' => $invoiceOne->id,
             'name' => 'Hosting',
             'amount' => 50,
         ]);
 
-        Expense::create([
+        LineItem::create([
             'invoice_id' => $invoiceTwo->id,
             'name' => 'Assets',
             'amount' => 20,

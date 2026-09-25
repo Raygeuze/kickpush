@@ -43,7 +43,10 @@ class HandleInertiaRequests extends Middleware
         $user = $request->user();
         $currentTeam = $user ? $user->currentTeam : null;
         $currentTeamRole = ($user && $currentTeam) ? $user->teamRole($currentTeam) : null;
-        $isCurrentTeamEmployee = $currentTeamRole ? ((string) $currentTeamRole->key === 'employee') : false;
+        $isCurrentTeamEmployee = $user && $currentTeam
+            ? (! $user->is_admin && ! $user->ownsTeam($currentTeam) && (string) ($currentTeamRole->key ?? '') === 'employee')
+            : false;
+        $canManageNonTimerRecords = ! $isCurrentTeamEmployee;
         $currentTeamId = $currentTeam ? (int) $currentTeam->id : null;
         $allTeams = $user ? $user->allTeams()->map(fn ($team) => [
             'id' => (int) $team->id,
@@ -91,7 +94,7 @@ class HandleInertiaRequests extends Middleware
                             'personal_team' => (bool) $currentTeam->personal_team,
                             'role' => $currentTeamRole ? (string) $currentTeamRole->key : null,
                             'is_employee' => $isCurrentTeamEmployee,
-                            'can_manage_non_timer_records' => ! $isCurrentTeamEmployee,
+                            'can_manage_non_timer_records' => $canManageNonTimerRecords,
                             'can_view_team_sessions' => Gate::forUser($user)->check('viewTeam', TimerSession::class),
                             'can_manage_team_sessions' => Gate::forUser($user)->check('manageTeam', TimerSession::class),
                             'is_owner' => $user->ownsTeam($currentTeam),

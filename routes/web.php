@@ -78,8 +78,8 @@ Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/task', [InvoiceController::class, 'updateSessionTask'])->name('invoices.sessions.updateTask');
     Route::post('/invoices/{invoiceId}/discount', [InvoiceController::class, 'updateDiscount'])->name('invoices.discount.update');
     Route::delete('/invoices/{invoiceId}/sessions/{sessionId}', [InvoiceController::class, 'detachSession'])->name('invoices.sessions.detach');
-    Route::post('/invoices/{invoiceId}/expenses', [InvoiceController::class, 'addExpense'])->name('invoices.expenses.add');
-    Route::delete('/invoices/{invoiceId}/expenses/{expenseId}', [InvoiceController::class, 'removeExpense'])->name('invoices.expenses.remove');
+    Route::post('/invoices/{invoiceId}/line-items', [InvoiceController::class, 'addLineItem'])->name('invoices.lineItems.add');
+    Route::delete('/invoices/{invoiceId}/line-items/{lineItemId}', [InvoiceController::class, 'removeLineItem'])->name('invoices.lineItems.remove');
     Route::post('/invoices/{invoiceId}/finalize', [InvoiceController::class, 'finalize'])->name('invoices.finalize');
     Route::post('/invoices/{invoiceId}/mark-paid', [InvoiceController::class, 'markPaid'])->name('invoices.markPaid');
     Route::post('/invoices/{invoiceId}/email-client', [InvoiceController::class, 'emailClientPdf'])->name('invoices.emailClientPdf');

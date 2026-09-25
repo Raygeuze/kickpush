@@ -20,7 +20,11 @@ class EnforceEmployeeTeamPermissions
             abort(403, 'You must belong to a team to access this area.');
         }
 
-        if (! $user->hasTeamRole($team, 'employee')) {
+        $isEmployee = ! $user->is_admin
+            && ! $user->ownsTeam($team)
+            && optional($user->teamRole($team))->key === 'employee';
+
+        if (! $isEmployee) {
             return $next($request);
         }
 

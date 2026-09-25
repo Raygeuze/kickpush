@@ -60,9 +60,9 @@ class Invoice extends Model
             ->orderByDesc('started_at');
     }
 
-    public function expenses(): HasMany
+    public function lineItems(): HasMany
     {
-        return $this->hasMany(Expense::class)
+        return $this->hasMany(LineItem::class)
             ->orderByDesc('created_at');
     }
 }

@@ -31,7 +31,7 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
-    expenses: {
+    lineItems: {
         type: Array,
         default: () => [],
     },
@@ -101,7 +101,7 @@ function formatDuration(totalSeconds) {
 const {
     invoice,
     assignedSessions,
-    expenses,
+    lineItems,
     summary,
     statusMessage,
     isFinalizing,
@@ -109,7 +109,7 @@ const {
     isSendingInvoiceEmail,
     isDeletingInvoice,
     isSavingDiscount,
-    isSubmittingExpense,
+    isSubmittingLineItem,
     isSubmittingManualSession,
     isInlineTimerLoading,
     isInlineTimerDeleting,
@@ -125,9 +125,9 @@ const {
     inlineActiveSessionId,
     isInlineTimerRunning,
     isInlineTimerActive,
-    expenseName,
-    expenseDescription,
-    expenseAmount,
+    lineItemName,
+    lineItemDescription,
+    lineItemAmount,
     isFinalized,
     isPaid,
     hasActiveClientTasks,
@@ -142,7 +142,7 @@ const {
     isProjectSectionExpanded,
     toggleProjectSection,
     isBusy,
-    isExpenseBusy,
+    isLineItemBusy,
     isSavingSessionDuration,
     isSavingSessionDetails,
     isEditingSessionDetails,
@@ -163,8 +163,8 @@ const {
     markInvoicePaid,
     emailInvoiceToClient,
     saveInvoiceDiscount,
-    addExpense,
-    removeExpense,
+    addLineItem,
+    removeLineItem,
     createManualSession,
     runInlinePrimaryAction,
     stopInlineTimer,
@@ -186,7 +186,7 @@ const {
     initialAssignedSessions: props.assignedSessions,
     initialClientTasks: props.clientTasks,
     initialAvailableSessions: props.availableSessions,
-    initialExpenses: props.expenses,
+    initialLineItems: props.lineItems,
     initialSummary: props.summary,
     currentUserId: page.props.auth?.user?.id,
     canDeleteAnyTimerSession: canDeleteAnyTimerSession.value,
@@ -362,18 +362,20 @@ const sessionFormatters = {
                 <InvoiceExpensesPanel
                     :can-manage-non-timer-records="canManageNonTimerRecords"
                     :is-finalized="isFinalized"
-                    :is-submitting-expense="isSubmittingExpense"
-                    :expenses="expenses"
+                    :is-submitting-line-item="isSubmittingLineItem"
+                    :status-message="statusMessage"
+                    :line-items="lineItems"
                     :format-currency="formatCurrency"
-                    :is-expense-busy="isExpenseBusy"
-                    :expense-name="expenseName"
-                    :expense-amount="expenseAmount"
-                    :expense-description="expenseDescription"
-                    @update:expense-name="expenseName = $event"
-                    @update:expense-amount="expenseAmount = $event"
-                    @update:expense-description="expenseDescription = $event"
-                    @add-expense="addExpense"
-                    @remove-expense="removeExpense"
+                    :is-line-item-busy="isLineItemBusy"
+                    :line-item-name="lineItemName"
+                    :line-item-amount="lineItemAmount"
+                    :line-item-description="lineItemDescription"
+                    :line-item-currency="invoice?.client?.currency || 'USD'"
+                    @update:line-item-name="lineItemName = $event"
+                    @update:line-item-amount="lineItemAmount = $event"
+                    @update:line-item-description="lineItemDescription = $event"
+                    @add-line-item="addLineItem"
+                    @remove-line-item="removeLineItem"
                 />
 
             </div>
