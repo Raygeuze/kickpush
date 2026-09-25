@@ -29,6 +29,7 @@ class TimerSession extends Model
         'stopped_at',
         'accumulated_seconds',
         'duration_seconds',
+        'notes',
         'hourly_rate_snapshot',
         'hourly_rate_source',
         'currency_snapshot',

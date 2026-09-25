@@ -29,6 +29,14 @@ const isDaySource = computed(() => props.source === 'day');
 const form = computed(() => isDaySource.value ? props.state.dayStartForm : props.state.startForm);
 const taskOptions = computed(() => isDaySource.value ? props.state.dayProjectTasks : props.state.projectTasks);
 const isSubmitting = computed(() => isDaySource.value ? props.state.startingDayTimer : props.state.startingTimer);
+const hasManualDuration = computed(() => form.value.duration.trim() !== '');
+const submitLabel = computed(() => {
+    if (isSubmitting.value) {
+        return hasManualDuration.value ? 'Recording...' : 'Starting...';
+    }
+
+    return hasManualDuration.value ? 'Record' : 'Start';
+});
 
 function close() {
     if (isDaySource.value) {
@@ -82,18 +90,41 @@ function submit() {
                 </label>
             </div>
 
-            <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p class="text-xs text-gray-500 dark:text-gray-400">Timer runs from now and is recorded on {{ dayLabel }}.</p>
+            <div class="mt-3 grid gap-3 sm:grid-cols-3">
+                <label class="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 sm:col-span-2">
+                    Notes (optional)
+                    <textarea
+                        v-model="form.notes"
+                        rows="2"
+                        placeholder="Add a note about this session..."
+                        class="mt-1 h-16 w-full resize-none rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    ></textarea>
+                </label>
+
+                <label class="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                    Time
+                    <input
+                        v-model="form.duration"
+                        type="text"
+                        placeholder="0:00"
+                        class="mt-1 h-16 w-full rounded-lg border-gray-300 px-2 py-0 text-right text-2xl dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    />
+                </label>
+            </div>
+
+            <div class="mt-6 flex flex-col gap-3 border-t border-gray-100 pt-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ hasManualDuration ? `Recorded on ${dayLabel} without starting a running timer.` : `Timer runs from now and is recorded on ${dayLabel}.` }}
+                </p>
                 <div class="flex items-center justify-end gap-3">
                     <button type="button" class="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-900" @click="close">Cancel</button>
                     <button
                         type="submit"
                         class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
-                        :disabled="isSubmitting || state.hasActiveSession || !form.task_id"
-                        :title="state.hasActiveSession ? 'Stop your active timer before starting another' : 'Start recording time'"
+                        :disabled="isSubmitting || !form.task_id || (!hasManualDuration && state.hasActiveSession)"
+                        :title="(!hasManualDuration && state.hasActiveSession) ? 'Stop your active timer before starting another' : 'Start recording time'"
                     >
-                        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                        <span>{{ isSubmitting ? 'Starting...' : 'Start timer' }}</span>
+                        <span>{{ submitLabel }}</span>
                     </button>
                 </div>
             </div>

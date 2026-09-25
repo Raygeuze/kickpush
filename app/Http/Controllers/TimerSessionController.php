@@ -350,18 +350,24 @@ class TimerSessionController extends Controller
             'project_id' => 'nullable|integer',
             'task_id' => 'nullable|integer|required_without:project_id',
             'session_date' => 'nullable|date',
+            'duration_seconds' => 'nullable|integer|min:1|max:604800',
+            'notes' => 'nullable|string|max:2000',
         ]);
 
         $user = Auth::user();
         abort_unless($user instanceof User, 401, 'Authentication required.');
 
         $teamId = $this->currentTeamIdOrFail();
-        $existing = $this->sessions->findActiveSessionForUser((int) $user->id, $teamId);
+        $manualDurationSeconds = isset($validated['duration_seconds']) ? (int) $validated['duration_seconds'] : null;
 
-        if ($existing) {
-            return response()->json([
-                'message' => 'A timer is already running. Stop it before starting another.',
-            ], 409);
+        if ($manualDurationSeconds === null) {
+            $existing = $this->sessions->findActiveSessionForUser((int) $user->id, $teamId);
+
+            if ($existing) {
+                return response()->json([
+                    'message' => 'A timer is already running. Stop it before starting another.',
+                ], 409);
+            }
         }
 
         $task = $this->sessions->resolveTaskForTeam(
@@ -397,10 +403,17 @@ class TimerSessionController extends Controller
             }
         }
 
-        $session = $this->sessions->start($user, $teamId, $task, $startedAt);
+        $session = $manualDurationSeconds !== null
+            ? $this->sessions->createManual($user, $teamId, $task, $startedAt ?? now(), $manualDurationSeconds)
+            : $this->sessions->start($user, $teamId, $task, $startedAt);
+
+        if (isset($validated['notes'])) {
+            $this->sessions->updateNotes($session, trim($validated['notes']));
+        }
+
         $this->sessions->assignToLatestDraftInvoice($session, $teamId, (int) $user->id);
 
-        return $this->sessionResponse($session, 'Timer started.', 201);
+        return $this->sessionResponse($session, $manualDurationSeconds !== null ? 'Timer session recorded.' : 'Timer started.', 201);
     }
 
     public function updateSession(Request $request, int $sessionId): JsonResponse
@@ -408,7 +421,6 @@ class TimerSessionController extends Controller
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $session = $this->findTeamSessionOrFail($sessionId);
-        Gate::authorize('update', $session);
 
         $validated = $request->validate([
             'project_id' => 'nullable|integer',
@@ -416,16 +428,26 @@ class TimerSessionController extends Controller
             'session_date' => 'nullable|date',
             'duration_seconds' => 'nullable|integer|min:1|max:604800',
             'duration_minutes' => 'nullable|numeric|min:1|max:10080',
+            'notes' => 'nullable|string|max:2000',
         ]);
 
         $changesTask = isset($validated['task_id']) || isset($validated['project_id']);
         $changesDate = isset($validated['session_date']);
         $changesDuration = isset($validated['duration_seconds']) || isset($validated['duration_minutes']);
+        $changesNotes = array_key_exists('notes', $validated);
 
-        if (!$changesTask && !$changesDate && !$changesDuration) {
+        if (!$changesTask && !$changesDate && !$changesDuration && !$changesNotes) {
             return response()->json([
-                'message' => 'Provide a task, date or duration to update.',
+                'message' => 'Provide a task, date, duration or notes to update.',
             ], 422);
+        }
+
+        if ($changesTask || $changesDate || $changesDuration) {
+            Gate::authorize('update', $session);
+        }
+
+        if ($changesNotes) {
+            Gate::authorize('updateNotes', $session);
         }
 
         if (($changesDate || $changesDuration) && $session->stopped_at === null) {
@@ -461,6 +483,10 @@ class TimerSessionController extends Controller
 
         if ($changesDuration) {
             $this->sessions->updateDuration($session, $this->resolveDurationSeconds($validated));
+        }
+
+        if ($changesNotes) {
+            $this->sessions->updateNotes($session, $validated['notes'] !== null ? trim($validated['notes']) : null);
         }
 
         return $this->sessionResponse($session, 'Timer session updated.');

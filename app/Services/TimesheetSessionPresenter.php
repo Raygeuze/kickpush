@@ -43,9 +43,11 @@ class TimesheetSessionPresenter
             'elapsed_seconds' => $session->elapsedSeconds($generatedAt),
             'is_running' => $session->isRunning(),
             'is_paused' => $session->isPaused(),
+            'notes' => $session->notes,
             'can_update' => Gate::allows('update', $session),
             'can_delete' => Gate::allows('delete', $session),
             'can_operate' => Gate::allows('operate', $session),
+            'can_edit_notes' => Gate::allows('updateNotes', $session),
         ];
     }
 }

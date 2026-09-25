@@ -30,13 +30,13 @@ export function useTimesheetSessions(props) {
     const liveSessions = ref([...props.sessions]);
     const liveServerNow = ref(props.serverNow);
     const editingSessionId = ref(null);
-    const editForm = reactive({ task_id: '', session_date: '', duration: '', invoice_id: '' });
+    const editForm = reactive({ task_id: '', session_date: '', duration: '', invoice_id: '', notes: '' });
 
     const startingCell = ref(null);
-    const startForm = reactive({ project_id: '', task_id: '' });
+    const startForm = reactive({ project_id: '', task_id: '', duration: '', notes: '' });
     const startingTimer = ref(false);
 
-    const dayStartForm = reactive({ project_id: '', task_id: '' });
+    const dayStartForm = reactive({ project_id: '', task_id: '', duration: '', notes: '' });
     const startingDayTimer = ref(false);
     const dayStartModalOpen = ref(false);
     const formErrors = ref('');
@@ -116,6 +116,44 @@ export function useTimesheetSessions(props) {
         }
 
         return parts.reduce((total, part) => (total * 60) + Number(part), 0);
+    }
+
+    // Accepts HH:MM, H:MM or :MM (hours optional), ignoring any seconds component.
+    function parseHourMinuteDuration(value) {
+        const parts = String(value || '').trim().split(':');
+
+        if (parts.length > 2) {
+            return null;
+        }
+
+        if (parts.length === 1) {
+            if (!/^\d+$/.test(parts[0])) {
+                return null;
+            }
+
+            return Number(parts[0]) * 3600;
+        }
+
+        const [hoursPart, minutesPart] = parts;
+
+        if (!/^\d*$/.test(hoursPart) || !/^\d+$/.test(minutesPart)) {
+            return null;
+        }
+
+        const hours = hoursPart === '' ? 0 : Number(hoursPart);
+
+        return (hours * 60 + Number(minutesPart)) * 60;
+    }
+
+    // Returns null when no manual time was entered, false when the entry is invalid, or seconds otherwise.
+    function manualDurationSeconds(value) {
+        if (!String(value || '').trim()) {
+            return null;
+        }
+
+        const seconds = parseHourMinuteDuration(value);
+
+        return seconds === null || seconds < 1 ? false : seconds;
     }
 
     function projectKey(session) {
@@ -492,6 +530,7 @@ export function useTimesheetSessions(props) {
         editForm.session_date = session.day_key;
         editForm.duration = formatClockDuration(sessionDuration(session));
         editForm.invoice_id = session.invoice_id ? String(session.invoice_id) : '';
+        editForm.notes = session.notes || '';
     }
 
     function cancelEditing() {
@@ -526,6 +565,10 @@ export function useTimesheetSessions(props) {
 
         if (nextSeconds !== sessionDuration(session)) {
             payload.duration_seconds = nextSeconds;
+        }
+
+        if (session.can_edit_notes && editForm.notes !== (session.notes || '')) {
+            payload.notes = editForm.notes;
         }
 
         if (Object.keys(payload).length === 0) {
@@ -563,6 +606,8 @@ export function useTimesheetSessions(props) {
         startingCell.value = { ...selectedCell.value };
         startForm.project_id = isNewEntryCell.value ? '' : String(selectedProject.value?.projectId || '');
         startForm.task_id = projectTasks.value[0] ? String(projectTasks.value[0].id) : '';
+        startForm.duration = '';
+        startForm.notes = '';
     }
 
     function chooseNewEntryCell(day) {
@@ -586,6 +631,8 @@ export function useTimesheetSessions(props) {
 
     function openDayStartTimer() {
         formErrors.value = '';
+        dayStartForm.duration = '';
+        dayStartForm.notes = '';
         dayStartModalOpen.value = true;
     }
 
@@ -601,11 +648,22 @@ export function useTimesheetSessions(props) {
             return;
         }
 
+        const durationSeconds = manualDurationSeconds(startForm.duration);
+
+        if (durationSeconds === false) {
+            formErrors.value = 'Enter the time as HH:MM, H:MM or :MM.';
+
+            return;
+        }
+
         startingTimer.value = true;
+        formErrors.value = '';
 
         const started = await mutateSession(null, () => axios.post('/timer/sessions', {
             task_id: Number(startForm.task_id),
             session_date: startingCell.value.dayKey,
+            notes: startForm.notes.trim() || undefined,
+            ...(durationSeconds !== null ? { duration_seconds: durationSeconds } : {}),
         }));
 
         startingTimer.value = false;
@@ -629,12 +687,22 @@ export function useTimesheetSessions(props) {
             return;
         }
 
+        const durationSeconds = manualDurationSeconds(dayStartForm.duration);
+
+        if (durationSeconds === false) {
+            formErrors.value = 'Enter the time as HH:MM, H:MM or :MM.';
+
+            return;
+        }
+
         startingDayTimer.value = true;
         formErrors.value = '';
 
         const started = await mutateSession(null, () => axios.post('/timer/sessions', {
             task_id: Number(dayStartForm.task_id),
             session_date: activeDayKey.value,
+            notes: dayStartForm.notes.trim() || undefined,
+            ...(durationSeconds !== null ? { duration_seconds: durationSeconds } : {}),
         }));
 
         startingDayTimer.value = false;
@@ -642,6 +710,8 @@ export function useTimesheetSessions(props) {
         if (started) {
             dayStartForm.project_id = '';
             dayStartForm.task_id = '';
+            dayStartForm.duration = '';
+            dayStartForm.notes = '';
             dayStartModalOpen.value = false;
         }
     }

@@ -57,6 +57,19 @@ class TimerSessionPolicy
         return $this->mutableResponse($session);
     }
 
+    public function updateNotes(User $user, TimerSession $session): Response
+    {
+        if (!$this->belongsToCurrentTeam($user, $session)) {
+            return Response::denyAsNotFound();
+        }
+
+        if ((int) $session->user_id !== (int) $user->id) {
+            return Response::deny('Only the timer session creator can edit its notes.');
+        }
+
+        return Response::allow();
+    }
+
     public function delete(User $user, TimerSession $session): Response
     {
         if (!$this->belongsToCurrentTeam($user, $session)) {

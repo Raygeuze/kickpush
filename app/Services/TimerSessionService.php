@@ -115,6 +115,14 @@ class TimerSessionService
         return $session;
     }
 
+    public function updateNotes(TimerSession $session, ?string $notes): TimerSession
+    {
+        $session->notes = $notes;
+        $session->save();
+
+        return $session;
+    }
+
     public function stop(TimerSession $session): TimerSession
     {
         $stoppedAt = now();

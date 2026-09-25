@@ -36,6 +36,11 @@ const props = defineProps({
             <input v-model="state.editForm.duration" type="text" inputmode="numeric" placeholder="00:00:00" pattern="^\d+(:\d{1,2}){0,2}$" class="mt-1 w-full rounded-lg border-gray-300 font-mono text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white">
         </label>
 
+        <label v-if="session.can_edit_notes" class="text-xs font-semibold uppercase text-gray-500 sm:col-span-4">
+            Notes
+            <textarea v-model="state.editForm.notes" rows="2" placeholder="Add a note about this session..." class="mt-1 w-full rounded-lg border-gray-300 text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-white"></textarea>
+        </label>
+
         <div class="flex flex-wrap items-center gap-3 sm:col-span-4">
             <button type="submit" class="rounded-lg bg-gray-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-gray-950" :disabled="state.isBusy(session.id)">Save changes</button>
 

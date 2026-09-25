@@ -42,6 +42,7 @@ const props = defineProps({
                 <p class="mt-1 text-xs text-gray-500">
                     {{ session.user_name }} · {{ session.started_time }}<span v-if="session.stopped_time">-{{ session.stopped_time }}</span> · {{ state.invoiceLabel(session) }}
                 </p>
+                <p v-if="session.notes" class="mt-1 text-xs italic text-gray-500 dark:text-gray-400">{{ session.notes }}</p>
             </div>
 
             <div class="flex items-center gap-2">
