@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
+import { formatClockDuration, parseClockDuration, parseHourMinuteDuration } from '@/utils/timeDuration';
 
 export function useTimesheetSessions(props) {
     const currentViewMode = ref(props.view || props.filters?.view || 'day');
@@ -98,51 +99,6 @@ export function useTimesheetSessions(props) {
         const minutes = Math.floor((seconds % 3600) / 60);
 
         return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-    }
-
-    function formatClockDuration(totalSeconds) {
-        const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
-
-        return [Math.floor(seconds / 3600), Math.floor((seconds % 3600) / 60), seconds % 60]
-            .map((part) => String(part).padStart(2, '0'))
-            .join(':');
-    }
-
-    function parseClockDuration(value) {
-        const parts = String(value || '').trim().split(':');
-
-        if (parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) {
-            return null;
-        }
-
-        return parts.reduce((total, part) => (total * 60) + Number(part), 0);
-    }
-
-    // Accepts HH:MM, H:MM or :MM (hours optional), ignoring any seconds component.
-    function parseHourMinuteDuration(value) {
-        const parts = String(value || '').trim().split(':');
-
-        if (parts.length > 2) {
-            return null;
-        }
-
-        if (parts.length === 1) {
-            if (!/^\d+$/.test(parts[0])) {
-                return null;
-            }
-
-            return Number(parts[0]) * 3600;
-        }
-
-        const [hoursPart, minutesPart] = parts;
-
-        if (!/^\d*$/.test(hoursPart) || !/^\d+$/.test(minutesPart)) {
-            return null;
-        }
-
-        const hours = hoursPart === '' ? 0 : Number(hoursPart);
-
-        return (hours * 60 + Number(minutesPart)) * 60;
     }
 
     // Returns null when no manual time was entered, false when the entry is invalid, or seconds otherwise.

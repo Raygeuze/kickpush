@@ -464,65 +464,6 @@ class InvoiceController extends Controller
         ]);
     }
 
-    public function startInlineTimer(Request $request, int $invoiceId): JsonResponse
-    {
-        abort_unless(Auth::check(), 401, 'Authentication required.');
-        Gate::authorize('create', TimerSession::class);
-
-        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
-        $this->abortIfInvoiceFinalized($invoice);
-
-        $validated = $request->validate([
-            'project_id' => 'nullable|integer',
-            'task_id' => 'nullable|integer',
-        ]);
-
-        $taskId = $this->resolveTaskIdForInvoiceClient(
-            $invoice,
-            isset($validated['project_id']) ? (int) $validated['project_id'] : null,
-            isset($validated['task_id']) ? (int) $validated['task_id'] : null
-        );
-
-        $activeSession = $this->findAnyActiveSessionForActor();
-
-        if ($activeSession) {
-            if ((int) $activeSession->invoice_id === (int) $invoice->id) {
-                return response()->json([
-                    'message' => $activeSession->paused_at
-                        ? 'Timer is paused for this invoice. Resume it to continue.'
-                        : 'Timer is already running for this invoice.',
-                    'session' => $activeSession,
-                ], 409);
-            }
-
-            $otherState = $activeSession->paused_at ? 'paused' : 'running';
-
-            return response()->json([
-                'message' => "A timer is currently {$otherState} on another invoice. Stop it before starting this one.",
-            ], 422);
-        }
-
-        $startedAt = now();
-        $user = Auth::user();
-        abort_unless($user instanceof User, 401, 'Authentication required.');
-        $snapshotTask = $taskId ? Task::query()->with('project')->find($taskId) : null;
-
-        $session = TimerSession::create(array_merge([
-            'user_id' => Auth::id(),
-            'team_id' => $this->currentTeamIdOrFail(),
-            'invoice_id' => $invoice->id,
-            'task_id' => $taskId,
-            'started_at' => $startedAt,
-            'active_started_at' => $startedAt,
-            'accumulated_seconds' => 0,
-        ], $this->billingSnapshots->attributes($user, $invoice->client, $snapshotTask)));
-
-        return response()->json([
-            'message' => 'Timer started for this invoice.',
-            'session' => $session,
-        ], 201);
-    }
-
     public function stopInlineTimer(int $invoiceId): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -556,55 +497,6 @@ class InvoiceController extends Controller
         return response()->json([
             'message' => 'Timer stopped for this invoice.',
             'session' => $session,
-            'invoice' => $this->formatInvoice($freshInvoice),
-            'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
-            'available_sessions' => $this->availableConfirmedSessions($freshInvoice),
-            'line_items' => $this->invoiceLineItems($freshInvoice),
-            'summary' => $this->invoiceSummary($freshInvoice),
-        ]);
-    }
-
-    public function createManualSession(Request $request, int $invoiceId): JsonResponse
-    {
-        abort_unless(Auth::check(), 401, 'Authentication required.');
-        Gate::authorize('create', TimerSession::class);
-
-        $invoice = $this->findInvoiceForActorOrFail($invoiceId);
-        $this->abortIfInvoiceFinalized($invoice);
-
-        $validated = $request->validate([
-            'duration_minutes' => 'required|integer|min:1|max:1440',
-            'started_at' => 'nullable|date',
-            'project_id' => 'nullable|integer',
-            'task_id' => 'nullable|integer',
-        ]);
-
-        $durationSeconds = ((int) $validated['duration_minutes']) * 60;
-        $startedAt = isset($validated['started_at']) ? now()->parse($validated['started_at']) : now();
-
-        $taskId = $this->resolveTaskIdForInvoiceClient(
-            $invoice,
-            isset($validated['project_id']) ? (int) $validated['project_id'] : null,
-            isset($validated['task_id']) ? (int) $validated['task_id'] : null
-        );
-
-        $user = Auth::user();
-        abort_unless($user instanceof User, 401, 'Authentication required.');
-        $snapshotTask = $taskId ? Task::query()->with('project')->find($taskId) : null;
-
-        $this->sessions->createManual(
-            $user,
-            $this->currentTeamIdOrFail(),
-            $snapshotTask,
-            $startedAt,
-            $durationSeconds,
-            $invoice
-        );
-
-        $freshInvoice = $invoice->fresh();
-
-        return response()->json([
-            'message' => 'Manual timer session created and added to invoice.',
             'invoice' => $this->formatInvoice($freshInvoice),
             'assigned_sessions' => $this->assignedSessionsForInvoice($freshInvoice),
             'available_sessions' => $this->availableConfirmedSessions($freshInvoice),

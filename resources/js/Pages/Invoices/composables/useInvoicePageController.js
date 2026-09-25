@@ -1,4 +1,5 @@
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { parseHourMinuteDuration } from '@/utils/timeDuration';
 
 export function useInvoicePageController(options) {
     const {
@@ -29,7 +30,6 @@ export function useInvoicePageController(options) {
     const isDeletingInvoice = ref(false);
     const isSavingDiscount = ref(false);
     const isSubmittingLineItem = ref(false);
-    const isSubmittingManualSession = ref(false);
     const isInlineTimerLoading = ref(false);
     const isInlineTimerDeleting = ref(false);
 
@@ -53,11 +53,10 @@ export function useInvoicePageController(options) {
     const lineItemDescription = ref('');
     const lineItemAmount = ref('');
 
-    const manualDurationMinutes = ref('');
-    const selectedInlineProjectId = ref('');
-    const selectedInlineTaskId = ref('');
-    const selectedManualProjectId = ref('');
-    const selectedManualTaskId = ref('');
+    const invoiceStartModalOpen = ref(false);
+    const invoiceStartForm = reactive({ project_id: '', task_id: '', duration: '', notes: '' });
+    const startingInvoiceTimer = ref(false);
+    const invoiceStartFormError = ref('');
 
     const discountType = ref(invoice.value?.discount_type || '');
     const discountValue = ref(Number(invoice.value?.discount_value ?? 0));
@@ -99,17 +98,6 @@ export function useInvoicePageController(options) {
             (initialAssignedSessions || []).map((session) => [session.id, session?.task?.project_id ? String(session.task.project_id) : ''])
         )
     );
-
-    function getDefaultManualStartedAt() {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-
-        return `${year}-${month}-${day}`;
-    }
-
-    const manualStartedAt = ref(getDefaultManualStartedAt());
 
     let inlineIntervalId = null;
     let inlineRunningBaselineSeconds = 0;
@@ -194,74 +182,74 @@ export function useInvoicePageController(options) {
         return scopedTasks[0]?.id ? String(scopedTasks[0].id) : '';
     }
 
-    function ensureInlineTaskSelection() {
-        if (!selectedInlineProjectId.value) {
-            selectedInlineTaskId.value = '';
-            return;
-        }
+    const invoiceProjectTasks = computed(() => tasksForProject(invoiceStartForm.project_id));
 
-        if (selectedInlineTaskId.value) {
-            const exists = tasksForProject(selectedInlineProjectId.value).some((task) => String(task.id) === selectedInlineTaskId.value);
-
-            if (exists) {
-                return;
-            }
-        }
-
-        selectedInlineTaskId.value = getDefaultTaskIdForProject(selectedInlineProjectId.value);
+    function openInvoiceStartTimer() {
+        invoiceStartFormError.value = '';
+        invoiceStartForm.project_id = '';
+        invoiceStartForm.task_id = '';
+        invoiceStartForm.duration = '';
+        invoiceStartForm.notes = '';
+        invoiceStartModalOpen.value = true;
     }
 
-    function ensureManualTaskSelection() {
-        if (!selectedManualProjectId.value) {
-            selectedManualTaskId.value = '';
-            return;
-        }
-
-        if (selectedManualTaskId.value) {
-            const exists = tasksForProject(selectedManualProjectId.value).some((task) => String(task.id) === selectedManualTaskId.value);
-
-            if (exists) {
-                return;
-            }
-        }
-
-        selectedManualTaskId.value = getDefaultTaskIdForProject(selectedManualProjectId.value);
+    function cancelInvoiceStartTimer() {
+        invoiceStartModalOpen.value = false;
+        invoiceStartFormError.value = '';
     }
 
-    function ensureInlineProjectSelection() {
-        const projects = clientProjects.value || [];
+    watch(() => invoiceStartForm.project_id, () => {
+        invoiceStartForm.task_id = getDefaultTaskIdForProject(invoiceStartForm.project_id);
+    });
 
-        if (!projects.length) {
-            selectedInlineProjectId.value = '';
-            selectedInlineTaskId.value = '';
-            return;
+    // Returns null when no manual time was entered, false when the entry is invalid, or seconds otherwise.
+    function manualDurationSeconds(value) {
+        if (!String(value || '').trim()) {
+            return null;
         }
 
-        const exists = projects.some((project) => String(project.id) === selectedInlineProjectId.value);
+        const seconds = parseHourMinuteDuration(value);
 
-        if (!exists) {
-            selectedInlineProjectId.value = String(projects[0].id);
-        }
-
-        ensureInlineTaskSelection();
+        return seconds === null || seconds < 1 ? false : seconds;
     }
 
-    function ensureManualProjectSelection() {
-        const projects = clientProjects.value || [];
-
-        if (!projects.length) {
-            selectedManualProjectId.value = '';
-            selectedManualTaskId.value = '';
+    async function startInvoiceTimer() {
+        if (isFinalized.value || startingInvoiceTimer.value) {
             return;
         }
 
-        const exists = projects.some((project) => String(project.id) === selectedManualProjectId.value);
-
-        if (!exists) {
-            selectedManualProjectId.value = String(projects[0].id);
+        if (!invoiceStartForm.task_id) {
+            invoiceStartFormError.value = 'Select a project and task before starting a timer.';
+            return;
         }
 
-        ensureManualTaskSelection();
+        const durationSeconds = manualDurationSeconds(invoiceStartForm.duration);
+
+        if (durationSeconds === false) {
+            invoiceStartFormError.value = 'Enter the time as HH:MM, H:MM or :MM.';
+            return;
+        }
+
+        startingInvoiceTimer.value = true;
+        invoiceStartFormError.value = '';
+
+        try {
+            await axios.post('/timer/sessions', {
+                task_id: Number(invoiceStartForm.task_id),
+                invoice_id: Number(invoice.value.id),
+                notes: invoiceStartForm.notes.trim() || undefined,
+                ...(durationSeconds !== null ? { duration_seconds: durationSeconds } : {}),
+            });
+
+            await refreshInvoiceDetails();
+            await loadInlineTimerStatus();
+            invoiceStartModalOpen.value = false;
+            statusMessage.value = durationSeconds !== null ? 'Timer session recorded.' : 'Timer started.';
+        } catch (error) {
+            invoiceStartFormError.value = error?.response?.data?.message || 'Failed to start timer.';
+        } finally {
+            startingInvoiceTimer.value = false;
+        }
     }
 
     function isProjectSectionExpanded(projectKey) {
@@ -507,11 +495,6 @@ export function useInvoicePageController(options) {
         if (Array.isArray(data.client_tasks)) {
             clientTasks.value = data.client_tasks;
         }
-
-        ensureInlineProjectSelection();
-        ensureManualProjectSelection();
-        ensureInlineTaskSelection();
-        ensureManualTaskSelection();
 
         availableSessions.value = data.available_sessions || [];
         lineItems.value = data.line_items || [];
@@ -784,54 +767,12 @@ export function useInvoicePageController(options) {
         }
     }
 
-    async function createManualSession() {
-        if (isFinalized.value || isSubmittingManualSession.value) {
-            return;
-        }
-
-        if (!hasActiveClientTasks.value) {
-            statusMessage.value = 'Create at least one active task for this client before adding manual sessions.';
-            return;
-        }
-
-        if (!manualDurationMinutes.value || Number(manualDurationMinutes.value) <= 0) {
-            statusMessage.value = 'Enter a manual session duration greater than 0 minutes.';
-            return;
-        }
-
-        if (!selectedManualProjectId.value) {
-            statusMessage.value = 'Select a project before creating a manual session.';
-            return;
-        }
-
-        isSubmittingManualSession.value = true;
-
-        try {
-            const response = await axios.post(`/invoices/${invoice.value.id}/sessions/manual`, {
-                duration_minutes: Number(manualDurationMinutes.value),
-                started_at: manualStartedAt.value || null,
-                project_id: Number(selectedManualProjectId.value),
-                task_id: selectedManualTaskId.value ? Number(selectedManualTaskId.value) : null,
-            });
-
-            applyPayload(response.data);
-            statusMessage.value = response.data.message || 'Manual timer session created.';
-            manualDurationMinutes.value = '';
-            manualStartedAt.value = getDefaultManualStartedAt();
-        } catch (error) {
-            statusMessage.value = error?.response?.data?.message || 'Failed to create manual timer session.';
-        } finally {
-            isSubmittingManualSession.value = false;
-        }
-    }
-
     async function loadInlineTimerStatus() {
         try {
             const response = await axios.get(`/invoices/${invoice.value.id}/timer/status`);
 
             if (response.data.active && response.data.session) {
                 inlineActiveSessionId.value = response.data.session.id;
-                selectedInlineTaskId.value = response.data.session?.task_id ? String(response.data.session.task_id) : selectedInlineTaskId.value;
                 isInlineTimerRunning.value = Boolean(response.data.running);
                 isInlineTimerActive.value = true;
 
@@ -856,37 +797,6 @@ export function useInvoicePageController(options) {
             }
         } catch (error) {
             statusMessage.value = error?.response?.data?.message || 'Failed to load inline timer status.';
-        }
-    }
-
-    async function startInlineTimer() {
-        if (isFinalized.value || isInlineTimerLoading.value || isInlineTimerDeleting.value) {
-            return;
-        }
-
-        if (!hasActiveClientTasks.value) {
-            statusMessage.value = 'Create at least one active task for this client before starting timer sessions.';
-            return;
-        }
-
-        if (!selectedInlineProjectId.value) {
-            statusMessage.value = 'Select a project before starting a timer session.';
-            return;
-        }
-
-        isInlineTimerLoading.value = true;
-
-        try {
-            const response = await axios.post(`/invoices/${invoice.value.id}/timer/start`, {
-                project_id: Number(selectedInlineProjectId.value),
-                task_id: selectedInlineTaskId.value ? Number(selectedInlineTaskId.value) : null,
-            });
-            await loadInlineTimerStatus();
-            statusMessage.value = response.data.message || 'Timer started for this invoice.';
-        } catch (error) {
-            statusMessage.value = error?.response?.data?.message || 'Failed to start inline timer.';
-        } finally {
-            isInlineTimerLoading.value = false;
         }
     }
 
@@ -944,15 +854,6 @@ export function useInvoicePageController(options) {
         } finally {
             isInlineTimerDeleting.value = false;
         }
-    }
-
-    function runInlinePrimaryAction() {
-        if (isInlineTimerActive.value) {
-            stopInlineTimer();
-            return;
-        }
-
-        startInlineTimer();
     }
 
     function canDeleteSession(session) {
@@ -1176,24 +1077,7 @@ export function useInvoicePageController(options) {
     }
 
     onMounted(() => {
-        ensureInlineProjectSelection();
-        ensureManualProjectSelection();
-        ensureInlineTaskSelection();
-        ensureManualTaskSelection();
         loadInlineTimerStatus();
-    });
-
-    watch(clientTasks, () => {
-        ensureInlineProjectSelection();
-        ensureManualProjectSelection();
-    }, { deep: true });
-
-    watch(selectedInlineProjectId, () => {
-        ensureInlineTaskSelection();
-    });
-
-    watch(selectedManualProjectId, () => {
-        ensureManualTaskSelection();
     });
 
     onBeforeUnmount(() => {
@@ -1215,19 +1099,20 @@ export function useInvoicePageController(options) {
         isDeletingInvoice,
         isSavingDiscount,
         isSubmittingLineItem,
-        isSubmittingManualSession,
         isInlineTimerLoading,
         isInlineTimerDeleting,
 
         discountType,
         discountValue,
 
-        manualDurationMinutes,
-        manualStartedAt,
-        selectedInlineProjectId,
-        selectedInlineTaskId,
-        selectedManualProjectId,
-        selectedManualTaskId,
+        invoiceStartModalOpen,
+        invoiceStartForm,
+        invoiceProjectTasks,
+        startingInvoiceTimer,
+        invoiceStartFormError,
+        openInvoiceStartTimer,
+        cancelInvoiceStartTimer,
+        startInvoiceTimer,
 
         inlineElapsedSeconds,
         inlineActiveSessionId,
@@ -1283,8 +1168,6 @@ export function useInvoicePageController(options) {
         addLineItem,
         removeLineItem,
 
-        createManualSession,
-        runInlinePrimaryAction,
         stopInlineTimer,
         deleteInlineTimer,
         resumeStoppedSession,

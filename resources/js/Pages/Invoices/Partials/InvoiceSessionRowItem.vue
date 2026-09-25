@@ -181,11 +181,11 @@ defineProps({
                 <button
                     v-if="!controller.isSessionStopped(session) && controller.canOperateSession(session)"
                     type="button"
-                    class="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-60"
+                    class="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-amber-700 disabled:opacity-60"
                     :disabled="controller.isFinalized || controller.isInlineTimerLoading || controller.isBusy(session.id) || controller.inlineActiveSessionId !== session.id"
                     @click="controller.submitResumedSession(session)"
                 >
-                    {{ controller.isInlineTimerLoading || controller.isBusy(session.id) ? 'Working...' : 'Submit' }}
+                    {{ controller.isInlineTimerLoading || controller.isBusy(session.id) ? 'Working...' : 'Stop' }}
                 </button>
 
                 <button

@@ -68,10 +68,8 @@ Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
     Route::get('/invoices/{invoiceId}/details', [InvoiceController::class, 'details'])->name('invoices.details');
     Route::post('/invoices/{invoiceId}/financial-year', [InvoiceController::class, 'assignFinancialYear'])->name('invoices.financialYear.assign');
     Route::get('/invoices/{invoiceId}/timer/status', [InvoiceController::class, 'inlineTimerStatus'])->name('invoices.timer.status');
-    Route::post('/invoices/{invoiceId}/timer/start', [InvoiceController::class, 'startInlineTimer'])->name('invoices.timer.start');
     Route::post('/invoices/{invoiceId}/timer/stop', [InvoiceController::class, 'stopInlineTimer'])->name('invoices.timer.stop');
     Route::post('/invoices/{invoiceId}/sessions', [InvoiceController::class, 'attachSession'])->name('invoices.sessions.attach');
-    Route::post('/invoices/{invoiceId}/sessions/manual', [InvoiceController::class, 'createManualSession'])->name('invoices.sessions.manual');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/resume', [InvoiceController::class, 'resumeStoppedSession'])->name('invoices.sessions.resume');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/date', [InvoiceController::class, 'updateSessionDate'])->name('invoices.sessions.updateDate');
     Route::post('/invoices/{invoiceId}/sessions/{sessionId}/duration', [InvoiceController::class, 'updateSessionDuration'])->name('invoices.sessions.updateDuration');

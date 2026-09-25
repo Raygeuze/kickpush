@@ -6,8 +6,8 @@ import InvoiceDiscountEditor from '@/Pages/Invoices/Partials/InvoiceDiscountEdit
 import InvoiceSummaryCards from '@/Pages/Invoices/Partials/InvoiceSummaryCards.vue';
 import InvoiceExpensesPanel from '@/Pages/Invoices/Partials/InvoiceExpensesPanel.vue';
 import InvoiceMetaHeader from '@/Pages/Invoices/Partials/InvoiceMetaHeader.vue';
-import InvoiceSessionEntryPanel from '@/Pages/Invoices/Partials/InvoiceSessionEntryPanel.vue';
 import InvoiceSessionGroupsList from '@/Pages/Invoices/Partials/InvoiceSessionGroupsList.vue';
+import StartTimerModal from '@/Pages/Timesheets/Partials/StartTimerModal.vue';
 import { useInvoicePageController } from '@/Pages/Invoices/composables/useInvoicePageController';
 
 const page = usePage();
@@ -110,20 +110,18 @@ const {
     isDeletingInvoice,
     isSavingDiscount,
     isSubmittingLineItem,
-    isSubmittingManualSession,
     isInlineTimerLoading,
-    isInlineTimerDeleting,
     discountType,
     discountValue,
-    manualDurationMinutes,
-    manualStartedAt,
-    selectedInlineProjectId,
-    selectedInlineTaskId,
-    selectedManualProjectId,
-    selectedManualTaskId,
-    inlineElapsedSeconds,
+    invoiceStartModalOpen,
+    invoiceStartForm,
+    invoiceProjectTasks,
+    startingInvoiceTimer,
+    invoiceStartFormError,
+    openInvoiceStartTimer,
+    cancelInvoiceStartTimer,
+    startInvoiceTimer,
     inlineActiveSessionId,
-    isInlineTimerRunning,
     isInlineTimerActive,
     lineItemName,
     lineItemDescription,
@@ -133,7 +131,6 @@ const {
     hasActiveClientTasks,
     clientProjects,
     assignedSessionsByProject,
-    tasksForProject,
     displaySessionDuration,
     visibleSessionsForProject,
     hasMoreSessionsForProject,
@@ -165,10 +162,6 @@ const {
     saveInvoiceDiscount,
     addLineItem,
     removeLineItem,
-    createManualSession,
-    runInlinePrimaryAction,
-    stopInlineTimer,
-    deleteInlineTimer,
     resumeStoppedSession,
     submitResumedSession,
     canManageSession,
@@ -210,23 +203,15 @@ function formatCurrency(amount) {
     }
 }
 
-const sessionEntryState = computed(() => ({
-    isFinalized: isFinalized.value,
-    isInlineTimerLoading: isInlineTimerLoading.value,
-    isInlineTimerDeleting: isInlineTimerDeleting.value,
-    isInlineTimerRunning: isInlineTimerRunning.value,
-    isInlineTimerActive: isInlineTimerActive.value,
-    inlineElapsedSeconds: inlineElapsedSeconds.value,
-    inlineActiveSessionId: inlineActiveSessionId.value,
-    hasActiveClientTasks: hasActiveClientTasks.value,
+const invoiceStartModalState = computed(() => ({
+    invoiceStartForm,
+    invoiceProjectTasks: invoiceProjectTasks.value,
+    startingInvoiceTimer: startingInvoiceTimer.value,
+    invoiceStartFormError: invoiceStartFormError.value,
     clientProjects: clientProjects.value,
-    selectedInlineProjectId: selectedInlineProjectId.value,
-    selectedInlineTaskId: selectedInlineTaskId.value,
-    selectedManualProjectId: selectedManualProjectId.value,
-    selectedManualTaskId: selectedManualTaskId.value,
-    manualDurationMinutes: manualDurationMinutes.value,
-    manualStartedAt: manualStartedAt.value,
-    isSubmittingManualSession: isSubmittingManualSession.value,
+    isInlineTimerActive: isInlineTimerActive.value,
+    cancelInvoiceStartTimer,
+    startInvoiceTimer,
 }));
 
 const sessionGroupsController = computed(() => ({
@@ -330,21 +315,26 @@ const sessionFormatters = {
                         This invoice is finalized and cannot be changed.
                     </p>
 
-                    <InvoiceSessionEntryPanel
-                        :state="sessionEntryState"
-                        :format-duration="formatDuration"
-                        :tasks-for-project="tasksForProject"
-                        :format-task-option="formatTaskOption"
-                        @update:selected-inline-project-id="selectedInlineProjectId = $event"
-                        @update:selected-inline-task-id="selectedInlineTaskId = $event"
-                        @update:selected-manual-project-id="selectedManualProjectId = $event"
-                        @update:selected-manual-task-id="selectedManualTaskId = $event"
-                        @update:manual-duration-minutes="manualDurationMinutes = $event"
-                        @update:manual-started-at="manualStartedAt = $event"
-                        @run-inline-primary-action="runInlinePrimaryAction"
-                        @stop-inline-timer="stopInlineTimer"
-                        @delete-inline-timer="deleteInlineTimer"
-                        @create-manual-session="createManualSession"
+                    <div class="mt-4 flex flex-col gap-3 rounded-xl border border-gray-200 p-3 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
+                        <p class="text-sm text-gray-600 dark:text-gray-300">
+                            {{ hasActiveClientTasks ? 'Start a timer or record time directly on this invoice.' : 'Create an active task for this client before adding sessions.' }}
+                        </p>
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+                            :disabled="isFinalized || !hasActiveClientTasks"
+                            @click="openInvoiceStartTimer"
+                        >
+                            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                            Start timer
+                        </button>
+                    </div>
+
+                    <StartTimerModal
+                        :show="invoiceStartModalOpen"
+                        :state="invoiceStartModalState"
+                        source="invoice"
+                        show-project
                     />
 
                     <p v-if="assignedSessions.length === 0" class="mt-3 text-sm text-gray-600 dark:text-gray-300">

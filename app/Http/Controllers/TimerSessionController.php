@@ -352,6 +352,7 @@ class TimerSessionController extends Controller
             'session_date' => 'nullable|date',
             'duration_seconds' => 'nullable|integer|min:1|max:604800',
             'notes' => 'nullable|string|max:2000',
+            'invoice_id' => 'nullable|integer|exists:invoices,id',
         ]);
 
         $user = Auth::user();
@@ -359,6 +360,7 @@ class TimerSessionController extends Controller
 
         $teamId = $this->currentTeamIdOrFail();
         $manualDurationSeconds = isset($validated['duration_seconds']) ? (int) $validated['duration_seconds'] : null;
+        $invoice = isset($validated['invoice_id']) ? $this->findDraftInvoiceForActorOrFail((int) $validated['invoice_id']) : null;
 
         if ($manualDurationSeconds === null) {
             $existing = $this->sessions->findActiveSessionForUser((int) $user->id, $teamId);
@@ -372,7 +374,7 @@ class TimerSessionController extends Controller
 
         $task = $this->sessions->resolveTaskForTeam(
             $teamId,
-            null,
+            $invoice?->client_id,
             isset($validated['project_id']) ? (int) $validated['project_id'] : null,
             isset($validated['task_id']) ? (int) $validated['task_id'] : null
         );
@@ -411,7 +413,11 @@ class TimerSessionController extends Controller
             $this->sessions->updateNotes($session, trim($validated['notes']));
         }
 
-        $this->sessions->assignToLatestDraftInvoice($session, $teamId, (int) $user->id);
+        if ($invoice) {
+            $this->sessions->attachToInvoice($session, $invoice);
+        } else {
+            $this->sessions->assignToLatestDraftInvoice($session, $teamId, (int) $user->id);
+        }
 
         return $this->sessionResponse($session, $manualDurationSeconds !== null ? 'Timer session recorded.' : 'Timer started.', 201);
     }
