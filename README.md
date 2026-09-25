@@ -7,6 +7,23 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## Local Frontend
+
+Normal Docker startup uses the compiled assets in `public/build`:
+
+```bash
+docker compose --env-file .env.docker up -d
+docker compose --env-file .env.docker --profile dev run --rm vite sh -c "npm install && npm run build"
+```
+
+Enable the Vite development server only when hot module replacement is needed:
+
+```bash
+docker compose --env-file .env.docker --profile dev up -d
+```
+
+Vite creates `public/hot`, which makes Laravel ignore `public/build`. If the Vite container is forcibly stopped, remove a stale marker with `rm -f public/hot` before using compiled assets again.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

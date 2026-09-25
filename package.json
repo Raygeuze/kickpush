@@ -1,6 +1,7 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
     "private": true,
+    "packageManager": "pnpm@10.34.5",
     "type": "module",
     "scripts": {
         "build": "vite build",
@@ -23,8 +24,6 @@
     },
     "dependencies": {
         "@inertiajs/vue3": "^2.0.17",
-        "@stripe/connect-js": "^3.3.31",
-        "@stripe/stripe-js": "^8.1.0",
         "pinia": "^3.0.3",
         "vue3-toastify": "^0.2.8"
     }

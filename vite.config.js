@@ -7,7 +7,13 @@ export default defineConfig({
         host: '0.0.0.0',
         port: 5174,
         cors: true,
-        origin: 'http://kickpush.localhost:5174',
+        origin: 'https://kickpush.localhost',
+        hmr: {
+            host: 'kickpush.localhost',
+            protocol: 'wss',
+            clientPort: 443,
+            path: '/vite-hmr',
+        },
     },
     plugins: [
         laravel({

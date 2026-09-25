@@ -65,6 +65,8 @@ services:
       # - "traefik.http.middlewares.${PROJECT_LABEL}-password.basicauth.users=client:$$apr1$$GfkuoZJ9$$O7xMMrUFReeSCy5I8ykOd."
   vite:
     image: node:20
+    profiles:
+      - dev
     working_dir: /var/www/html
     volumes:
       - ./:/var/www/html
@@ -77,11 +79,13 @@ services:
       - web
     labels:
       - "traefik.enable=${TRAEFIK_ENABLE}"
-      - "traefik.http.routers.${PROJECT_LABEL}-vite.rule=Host(`${PROJECT_LABEL}.localhost`) && PathPrefix(`/`)"
-      - "traefik.http.routers.${PROJECT_LABEL}-vite.entrypoints=${ENTRYPOINTS}"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite.rule=Host(`${PROJECT_LABEL}.localhost`) && (PathPrefix(`/@vite`) || PathPrefix(`/@id`) || PathPrefix(`/@fs`) || PathPrefix(`/resources`) || PathPrefix(`/node_modules`) || PathPrefix(`/vendor`) || PathPrefix(`/vite-hmr`))"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite.entrypoints=${ENTRYPOINTS_TLS}"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite.tls=true"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite-http.rule=Host(`${PROJECT_LABEL}.localhost`) && (PathPrefix(`/@vite`) || PathPrefix(`/@id`) || PathPrefix(`/@fs`) || PathPrefix(`/resources`) || PathPrefix(`/node_modules`) || PathPrefix(`/vendor`) || PathPrefix(`/vite-hmr`))"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite-http.entrypoints=${ENTRYPOINTS}"
+      - "traefik.http.routers.${PROJECT_LABEL}-vite-http.middlewares=${PROJECT_LABEL}-redirectToHttps@docker"
       - "traefik.http.services.${PROJECT_LABEL}-vite.loadbalancer.server.port=5174"
-      - "traefik.http.middlewares.vite-cors.headers.accesscontrolalloworigin=*"
-      - "traefik.http.routers.${PROJECT_LABEL}-vite.middlewares=vite-cors@docker"
 
   mailhog:
     image: mailhog/mailhog
