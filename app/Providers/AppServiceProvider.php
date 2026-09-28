@@ -27,6 +27,16 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::policy(TimerSession::class, TimerSessionPolicy::class);
 
+        if (Vite::isRunningHot()) {
+            $viteConnection = @stream_socket_client('tcp://vite:5174', $errorCode, $errorMessage, 0.2);
+
+            if ($viteConnection === false) {
+                Vite::useHotFile(public_path('hot.unavailable'));
+            } else {
+                fclose($viteConnection);
+            }
+        }
+
         Vite::prefetch(concurrency: 3);
 
 //        if (config('app.env') === 'production' || config('app.url') === 'https://kickpush.localhost') {

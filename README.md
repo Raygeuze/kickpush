@@ -16,13 +16,15 @@ docker compose --env-file .env.docker up -d
 docker compose --env-file .env.docker --profile dev run --rm vite sh -c "npm install && npm run build"
 ```
 
+Rebuild after every frontend source change when running without the Vite development server. Otherwise Laravel serves the previous bundle even if the current Vue source is correct.
+
 Enable the Vite development server only when hot module replacement is needed:
 
 ```bash
 docker compose --env-file .env.docker --profile dev up -d
 ```
 
-Vite creates `public/hot`, which makes Laravel ignore `public/build`. If the Vite container is forcibly stopped, remove a stale marker with `rm -f public/hot` before using compiled assets again.
+Vite creates `public/hot` while it runs. A forced stop can leave that marker behind, but Laravel uses `public/build` when the Docker Vite server is unavailable. If the Vite container fails to start with a missing Docker network, recreate it with `docker compose --env-file .env.docker --profile dev up -d --force-recreate vite`.
 
 ## About Laravel
 
