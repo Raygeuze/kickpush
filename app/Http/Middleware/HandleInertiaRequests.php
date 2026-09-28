@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\TimerSession;
+use App\Models\WorkEntry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Middleware;
@@ -95,8 +95,8 @@ class HandleInertiaRequests extends Middleware
                             'role' => $currentTeamRole ? (string) $currentTeamRole->key : null,
                             'is_employee' => $isCurrentTeamEmployee,
                             'can_manage_non_timer_records' => $canManageNonTimerRecords,
-                            'can_view_team_sessions' => Gate::forUser($user)->check('viewTeam', TimerSession::class),
-                            'can_manage_team_sessions' => Gate::forUser($user)->check('manageTeam', TimerSession::class),
+                            'can_view_team_sessions' => Gate::forUser($user)->check('viewTeam', WorkEntry::class),
+                            'can_manage_team_sessions' => Gate::forUser($user)->check('manageTeam', WorkEntry::class),
                             'is_owner' => $user->ownsTeam($currentTeam),
                             'can_manage_settings' => Gate::forUser($user)->check('update', $currentTeam),
                             'can_transfer_ownership' => $user->ownsTeam($currentTeam),

@@ -10,7 +10,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Jetstream\HasProfilePhoto;
 use Laravel\Jetstream\HasTeams;
 use Laravel\Sanctum\HasApiTokens;
-use App\Models\TimerSession;
+use App\Models\WorkEntry;
 use App\Models\Invoice;
 use App\Models\Client;
 use App\Models\Project;
@@ -89,9 +89,9 @@ class User extends Authenticatable
             ->orderBy('id');
     }
 
-    public function timerSessions()
+    public function workEntries()
     {
-        return $this->hasMany(TimerSession::class)
+        return $this->hasMany(WorkEntry::class)
             ->orderByDesc('created_at');
     }
 

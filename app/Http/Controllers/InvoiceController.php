@@ -9,11 +9,11 @@ use App\Models\LineItem;
 use App\Models\FinancialYear;
 use App\Models\Invoice;
 use App\Models\Task;
-use App\Models\TimerSession;
 use App\Models\UserAdditionalTax;
 use App\Models\User;
-use App\Services\TimerSessionBillingSnapshot;
-use App\Services\TimerSessionService;
+use App\Models\WorkEntry;
+use App\Services\WorkEntryBillingSnapshot;
+use App\Services\WorkEntryService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -30,11 +30,11 @@ use Throwable;
 
 class InvoiceController extends Controller
 {
-    private TimerSessionBillingSnapshot $billingSnapshots;
+    private WorkEntryBillingSnapshot $billingSnapshots;
 
-    private TimerSessionService $sessions;
+    private WorkEntryService $sessions;
 
-    public function __construct(TimerSessionBillingSnapshot $billingSnapshots, TimerSessionService $sessions)
+    public function __construct(WorkEntryBillingSnapshot $billingSnapshots, WorkEntryService $sessions)
     {
         $this->billingSnapshots = $billingSnapshots;
         $this->sessions = $sessions;
@@ -196,11 +196,11 @@ class InvoiceController extends Controller
             (int) $invoice->id => $invoice->client ? (float) $invoice->client->hourly_rate : 0.0,
         ])->all();
 
-        $sessionTotals = $this->applyActorScopeToSessions(TimerSession::query())
+        $sessionTotals = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereIn('invoice_id', $invoiceIds)
             ->whereNotNull('stopped_at')
-            ->selectRaw('invoice_id, user_id, hourly_rate_snapshot, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
-            ->groupBy('invoice_id', 'user_id', 'hourly_rate_snapshot')
+            ->selectRaw($this->billableSelectRaw())
+            ->groupBy(...$this->billableGroupBy())
             ->get();
 
         $billableTimeByInvoice = $this->calculateBillableTimeByInvoiceFromSessionRows($sessionTotals, $clientRatesByInvoice);
@@ -386,10 +386,10 @@ class InvoiceController extends Controller
         $this->abortIfInvoiceFinalized($invoice);
 
         $validated = $request->validate([
-            'session_id' => 'required|integer|exists:timer_sessions,id',
+            'session_id' => 'required|integer|exists:work_entries,id',
         ]);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereKey((int) $validated['session_id'])
             ->first();
 
@@ -471,7 +471,7 @@ class InvoiceController extends Controller
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $this->abortIfInvoiceFinalized($invoice);
 
-        $session = $this->applyCurrentUserScopeToSessions(TimerSession::query())
+        $session = $this->applyCurrentUserScopeToSessions(WorkEntry::query())
             ->where('invoice_id', $invoice->id)
             ->whereNull('stopped_at')
             ->latest('started_at')
@@ -512,7 +512,7 @@ class InvoiceController extends Controller
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $this->abortIfInvoiceFinalized($invoice);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereKey($sessionId)
             ->where('invoice_id', $invoice->id)
             ->whereNotNull('stopped_at')
@@ -558,7 +558,7 @@ class InvoiceController extends Controller
         $invoice = $this->findInvoiceForActorOrFail($invoiceId);
         $this->abortIfInvoiceFinalized($invoice);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereKey($sessionId)
             ->where('invoice_id', $invoice->id)
             ->first();
@@ -594,7 +594,7 @@ class InvoiceController extends Controller
             'session_date' => 'required|date',
         ]);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereKey($sessionId)
             ->where('invoice_id', $invoice->id)
             ->whereNotNull('stopped_at')
@@ -634,7 +634,7 @@ class InvoiceController extends Controller
             'duration_minutes' => 'nullable|numeric|min:0.01|max:10080|required_without:duration_seconds',
         ]);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereKey($sessionId)
             ->where('invoice_id', $invoice->id)
             ->whereNotNull('stopped_at')
@@ -678,7 +678,7 @@ class InvoiceController extends Controller
             'task_id' => 'nullable|integer',
         ]);
 
-        $session = $this->applyActorScopeToSessions(TimerSession::query())
+        $session = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereKey($sessionId)
             ->where('invoice_id', $invoice->id)
             ->first();
@@ -869,7 +869,7 @@ class InvoiceController extends Controller
             );
 
             // Unassign sessions before deleting so historical session data remains intact.
-            $this->applyActorScopeToSessions(TimerSession::query())
+            $this->applyActorScopeToSessions(WorkEntry::query())
                 ->where('invoice_id', $lockedInvoice->id)
                 ->update(['invoice_id' => null]);
 
@@ -1063,6 +1063,7 @@ class InvoiceController extends Controller
         $totalDurationSeconds = (int) ($summary['total_duration_seconds'] ?? 0);
         $totalHours = round($totalDurationSeconds / 3600, 2);
         $timeAmount = (float) ($summary['billable_time_amount'] ?? 0);
+        $unitsAmount = (float) ($summary['billable_units_amount'] ?? 0);
         $effectiveHourlyRate = $totalHours > 0 ? round($timeAmount / $totalHours, 2) : ($freshInvoice->client ? (float) $freshInvoice->client->hourly_rate : 0.0);
 
         $lineItemRows = $lineItems->map(function (LineItem $lineItem): array {
@@ -1073,13 +1074,21 @@ class InvoiceController extends Controller
             ];
         })->values()->all();
 
-        $lineItems = array_merge([
-            [
+        $lineItems = [];
+
+        if ($timeAmount > 0 || $unitsAmount <= 0) {
+            $lineItems[] = [
                 'label' => 'Billable time',
                 'description' => $totalHours . ' hours @ blended $' . number_format($effectiveHourlyRate, 2) . '/hr',
                 'amount' => $timeAmount,
-            ],
-        ], $lineItemRows);
+            ];
+        }
+
+        foreach ($this->invoiceUnitLines($freshInvoice) as $unitLine) {
+            $lineItems[] = $unitLine;
+        }
+
+        $lineItems = array_merge($lineItems, $lineItemRows);
 
         $discountAmount = (float) ($summary['discount_amount'] ?? 0);
 
@@ -1112,10 +1121,43 @@ class InvoiceController extends Controller
         ];
     }
 
+    /**
+     * One PDF line per distinct unit type and rate, e.g. "12 rooms @ $25.00".
+     *
+     * @return array<int, array{label: string, description: ?string, amount: float}>
+     */
+    private function invoiceUnitLines(Invoice $invoice): array
+    {
+        $rows = $this->applyActorScopeToSessions(WorkEntry::query())
+            ->where('invoice_id', $invoice->id)
+            ->where('billing_mode', WorkEntry::MODE_UNIT)
+            ->whereNotNull('stopped_at')
+            ->selectRaw('task_name_snapshot, unit_label_snapshot, unit_label_plural_snapshot, unit_rate_snapshot, COALESCE(SUM(quantity), 0) as total_quantity')
+            ->groupBy('task_name_snapshot', 'unit_label_snapshot', 'unit_label_plural_snapshot', 'unit_rate_snapshot')
+            ->get();
+
+        return $rows->map(function (WorkEntry $row): array {
+            $quantity = (float) $row->total_quantity;
+            $rate = (float) $row->unit_rate_snapshot;
+
+            return [
+                'label' => $row->task_name_snapshot ?: 'Unit work',
+                'description' => $this->formatQuantity($quantity).' '.$row->unitLabelFor($quantity)
+                    .' @ $'.number_format($rate, 2),
+                'amount' => round($quantity * $rate, 2),
+            ];
+        })->values()->all();
+    }
+
+    private function formatQuantity(float $quantity): string
+    {
+        return rtrim(rtrim(number_format($quantity, 3, '.', ''), '0'), '.');
+    }
+
     private function invoiceProjectTotals(Invoice $invoice): array
     {
         $clientHourlyRate = $invoice->client ? (float) $invoice->client->hourly_rate : 0.0;
-        $sessions = $this->applyActorScopeToSessions(TimerSession::query())
+        $sessions = $this->applyActorScopeToSessions(WorkEntry::query())
             ->where('invoice_id', $invoice->id)
             ->whereNotNull('stopped_at')
             ->with(['task.project'])
@@ -1123,6 +1165,9 @@ class InvoiceController extends Controller
                 'id',
                 'user_id',
                 'task_id',
+                'billing_mode',
+                'quantity',
+                'unit_rate_snapshot',
                 'duration_seconds',
                 'hourly_rate_snapshot',
                 'project_id_snapshot',
@@ -1133,7 +1178,7 @@ class InvoiceController extends Controller
             $sessions->pluck('user_id')->filter()->map(fn ($userId): int => (int) $userId)->unique()->values()->all()
         );
 
-        $grouped = $sessions->groupBy(function (TimerSession $session): string {
+        $grouped = $sessions->groupBy(function (WorkEntry $session): string {
             $projectId = optional(optional($session->task)->project)->id ?? $session->project_id_snapshot;
             $projectName = optional(optional($session->task)->project)->name ?? $session->project_name_snapshot;
 
@@ -1143,15 +1188,22 @@ class InvoiceController extends Controller
         });
 
         return $grouped->map(function ($projectSessions, string $groupKey) use ($clientHourlyRate, $userRateMap): array {
-            /** @var TimerSession $first */
+            /** @var WorkEntry $first */
             $first = $projectSessions->first();
             $project = optional(optional($first)->task)->project;
             $projectId = optional($project)->id ?? $first->project_id_snapshot;
             $projectName = optional($project)->name ?? $first->project_name_snapshot ?? 'Unassigned Project';
-            $totalDurationSeconds = (int) $projectSessions->sum(fn (TimerSession $session): int => (int) ($session->duration_seconds ?? 0));
+            $totalDurationSeconds = (int) $projectSessions->sum(fn (WorkEntry $session): int => (int) ($session->duration_seconds ?? 0));
             $billableTimeAmount = 0.0;
 
             foreach ($projectSessions as $session) {
+                if ($session->isUnitBased()) {
+                    $billableTimeAmount += max(0.0, (float) ($session->quantity ?? 0))
+                        * (float) ($session->unit_rate_snapshot ?? 0);
+
+                    continue;
+                }
+
                 $durationSeconds = max(0, (int) ($session->duration_seconds ?? 0));
                 $hourlyRate = $this->resolveSessionHourlyRate($session, $clientHourlyRate, $userRateMap);
                 $billableTimeAmount += ($durationSeconds / 3600) * $hourlyRate;
@@ -1203,7 +1255,7 @@ class InvoiceController extends Controller
     /**
      * @param array<int, float> $userRateMap
      */
-    private function resolveSessionHourlyRate(TimerSession $session, float $clientHourlyRate, array $userRateMap): float
+    private function resolveSessionHourlyRate(WorkEntry $session, float $clientHourlyRate, array $userRateMap): float
     {
         if ($session->hourly_rate_snapshot !== null) {
             return (float) $session->hourly_rate_snapshot;
@@ -1223,10 +1275,30 @@ class InvoiceController extends Controller
     }
 
     /**
-     * @param array<int, float> $clientRatesByInvoice
-     * @return array<int, float>
+     * Aggregate columns every billable rollup needs. Grouping by mode and both rate snapshots keeps
+     * hourly and per-unit work in separate rows so each can be priced with its own formula.
      */
-    private function calculateBillableTimeByInvoiceFromSessionRows($sessionRows, array $clientRatesByInvoice): array
+    private function billableSelectRaw(bool $withCount = false): string
+    {
+        return 'invoice_id, user_id, billing_mode, hourly_rate_snapshot, unit_rate_snapshot, '
+            .($withCount ? 'COUNT(*) as sessions_count, ' : '')
+            .'COALESCE(SUM(duration_seconds), 0) as total_duration_seconds, '
+            .'COALESCE(SUM(quantity), 0) as total_quantity';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function billableGroupBy(): array
+    {
+        return ['invoice_id', 'user_id', 'billing_mode', 'hourly_rate_snapshot', 'unit_rate_snapshot'];
+    }
+
+    /**
+     * @param array<int, float> $clientRatesByInvoice
+     * @return array<int, array{time: float, unit: float, total: float}>
+     */
+    private function calculateBillableBreakdownByInvoice($sessionRows, array $clientRatesByInvoice): array
     {
         $userIds = collect($sessionRows)
             ->pluck('user_id')
@@ -1237,7 +1309,7 @@ class InvoiceController extends Controller
             ->all();
 
         $userRateMap = $this->userChargeOutRateMapForIds($userIds);
-        $billableByInvoice = [];
+        $breakdown = [];
 
         foreach ($sessionRows as $row) {
             $invoiceId = (int) ($row->invoice_id ?? 0);
@@ -1246,19 +1318,45 @@ class InvoiceController extends Controller
                 continue;
             }
 
+            $breakdown[$invoiceId] ??= ['time' => 0.0, 'unit' => 0.0, 'total' => 0.0];
+
+            if ((string) ($row->billing_mode ?? WorkEntry::MODE_TIME) === WorkEntry::MODE_UNIT) {
+                $breakdown[$invoiceId]['unit'] += max(0.0, (float) ($row->total_quantity ?? 0))
+                    * (float) ($row->unit_rate_snapshot ?? 0);
+
+                continue;
+            }
+
             $clientRate = (float) ($clientRatesByInvoice[$invoiceId] ?? 0.0);
             $hourlyRate = $this->resolveSessionHourlyRate($row, $clientRate, $userRateMap);
             $durationSeconds = max(0, (int) ($row->total_duration_seconds ?? 0));
 
-            $billableByInvoice[$invoiceId] = (float) ($billableByInvoice[$invoiceId] ?? 0.0)
-                + (($durationSeconds / 3600) * $hourlyRate);
+            $breakdown[$invoiceId]['time'] += ($durationSeconds / 3600) * $hourlyRate;
         }
 
-        foreach ($billableByInvoice as $invoiceId => $amount) {
-            $billableByInvoice[$invoiceId] = round((float) $amount, 2);
+        foreach ($breakdown as $invoiceId => $amounts) {
+            $time = round((float) $amounts['time'], 2);
+            $unit = round((float) $amounts['unit'], 2);
+
+            $breakdown[$invoiceId] = [
+                'time' => $time,
+                'unit' => $unit,
+                'total' => round($time + $unit, 2),
+            ];
         }
 
-        return $billableByInvoice;
+        return $breakdown;
+    }
+
+    /**
+     * @param array<int, float> $clientRatesByInvoice
+     * @return array<int, float>
+     */
+    private function calculateBillableTimeByInvoiceFromSessionRows($sessionRows, array $clientRatesByInvoice): array
+    {
+        return collect($this->calculateBillableBreakdownByInvoice($sessionRows, $clientRatesByInvoice))
+            ->map(fn (array $amounts): float => (float) $amounts['total'])
+            ->all();
     }
 
     private function findInvoiceForActorOrFail(int $invoiceId): Invoice
@@ -1290,9 +1388,9 @@ class InvoiceController extends Controller
         return $client;
     }
 
-    private function findAnyActiveSessionForActor(): ?TimerSession
+    private function findAnyActiveSessionForActor(): ?WorkEntry
     {
-        return $this->applyCurrentUserScopeToSessions(TimerSession::query())
+        return $this->applyCurrentUserScopeToSessions(WorkEntry::query())
             ->whereNull('stopped_at')
             ->latest('started_at')
             ->first();
@@ -1326,10 +1424,10 @@ class InvoiceController extends Controller
     {
         $invoice->loadMissing('client');
 
-        $this->applyActorScopeToSessions(TimerSession::query())
+        $this->applyActorScopeToSessions(WorkEntry::query())
             ->where('invoice_id', $invoice->id)
             ->get()
-            ->each(function (TimerSession $session) use ($invoice): void {
+            ->each(function (WorkEntry $session) use ($invoice): void {
                 $this->billingSnapshots->apply($session, $invoice->client);
                 $session->save();
             });
@@ -1337,7 +1435,7 @@ class InvoiceController extends Controller
 
     private function assignedSessionsForInvoice(Invoice $invoice)
     {
-        return $this->applyActorScopeToSessions(TimerSession::query())
+        return $this->applyActorScopeToSessions(WorkEntry::query())
             ->where('invoice_id', $invoice->id)
             ->with(['task.project', 'user:id,name'])
             ->orderByDesc('started_at')
@@ -1378,7 +1476,7 @@ class InvoiceController extends Controller
 
     private function availableConfirmedSessions(Invoice $invoice)
     {
-        return $this->applyActorScopeToSessions(TimerSession::query())
+        return $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereNotNull('stopped_at')
             ->whereNull('invoice_id')
             ->orderByDesc('started_at')
@@ -1405,23 +1503,28 @@ class InvoiceController extends Controller
     {
         $invoice->loadMissing('client');
 
-        $totals = $this->applyActorScopeToSessions(TimerSession::query())
+        $totals = $this->applyActorScopeToSessions(WorkEntry::query())
             ->where('invoice_id', $invoice->id)
             ->whereNotNull('stopped_at')
-            ->selectRaw('invoice_id, user_id, hourly_rate_snapshot, COUNT(*) as sessions_count, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
-            ->groupBy('invoice_id', 'user_id', 'hourly_rate_snapshot')
+            ->selectRaw($this->billableSelectRaw(true))
+            ->groupBy(...$this->billableGroupBy())
             ->get();
 
         $sessionsCount = (int) $totals->sum('sessions_count');
         $totalDurationSeconds = (int) $totals->sum('total_duration_seconds');
+        $totalQuantity = (float) $totals
+            ->where('billing_mode', WorkEntry::MODE_UNIT)
+            ->sum('total_quantity');
         $totalExpensesAmount = (float) (LineItem::query()
             ->where('invoice_id', $invoice->id)
             ->sum('amount'));
-        $billableByInvoice = $this->calculateBillableTimeByInvoiceFromSessionRows($totals, [
+        $breakdown = $this->calculateBillableBreakdownByInvoice($totals, [
             (int) $invoice->id => $invoice->client ? (float) $invoice->client->hourly_rate : 0.0,
-        ]);
-        $billableTimeAmount = (float) ($billableByInvoice[(int) $invoice->id] ?? 0.0);
-        $subtotalAmount = round($billableTimeAmount + $totalExpensesAmount, 2);
+        ])[(int) $invoice->id] ?? ['time' => 0.0, 'unit' => 0.0, 'total' => 0.0];
+
+        $billableTimeAmount = (float) $breakdown['time'];
+        $billableUnitsAmount = (float) $breakdown['unit'];
+        $subtotalAmount = round($billableTimeAmount + $billableUnitsAmount + $totalExpensesAmount, 2);
         $discountAmount = $this->calculateInvoiceDiscountAmount(
             $subtotalAmount,
             $invoice->discount_type,
@@ -1432,8 +1535,11 @@ class InvoiceController extends Controller
         return [
             'sessions_count' => $sessionsCount,
             'total_duration_seconds' => $totalDurationSeconds,
+            'total_quantity' => $totalQuantity,
             'total_expenses_amount' => $totalExpensesAmount,
             'billable_time_amount' => $billableTimeAmount,
+            'billable_units_amount' => $billableUnitsAmount,
+            'billable_work_amount' => (float) $breakdown['total'],
             'subtotal_amount' => $subtotalAmount,
             'discount_type' => $invoice->discount_type,
             'discount_value' => (float) ($invoice->discount_value ?? 0),
@@ -1887,11 +1993,11 @@ class InvoiceController extends Controller
             ];
         }
 
-        $sessionTotals = $this->applyActorScopeToSessions(TimerSession::query())
+        $sessionTotals = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereIn('invoice_id', $invoiceIds)
             ->whereNotNull('stopped_at')
-            ->selectRaw('invoice_id, user_id, hourly_rate_snapshot, COUNT(*) as sessions_count, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
-            ->groupBy('invoice_id', 'user_id', 'hourly_rate_snapshot')
+            ->selectRaw($this->billableSelectRaw(true))
+            ->groupBy(...$this->billableGroupBy())
             ->get();
 
         $sessionsCount = (int) $sessionTotals->sum('sessions_count');
@@ -2037,11 +2143,11 @@ class InvoiceController extends Controller
 
         $invoiceIds = $paidInvoices->pluck('id')->all();
 
-        $sessionTotals = $this->applyActorScopeToSessions(TimerSession::query())
+        $sessionTotals = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereIn('invoice_id', $invoiceIds)
             ->whereNotNull('stopped_at')
-            ->selectRaw('invoice_id, user_id, hourly_rate_snapshot, COALESCE(SUM(duration_seconds), 0) as total_duration_seconds')
-            ->groupBy('invoice_id', 'user_id', 'hourly_rate_snapshot')
+            ->selectRaw($this->billableSelectRaw())
+            ->groupBy(...$this->billableGroupBy())
             ->get();
 
         $expenseTotals = LineItem::query()
@@ -2215,7 +2321,7 @@ class InvoiceController extends Controller
             return [];
         }
 
-        $sessions = $this->applyActorScopeToSessions(TimerSession::query())
+        $sessions = $this->applyActorScopeToSessions(WorkEntry::query())
             ->whereIn('invoice_id', $invoiceIds)
             ->whereNotNull('stopped_at')
             ->with(['task.project'])
@@ -2224,6 +2330,9 @@ class InvoiceController extends Controller
                 'invoice_id',
                 'user_id',
                 'task_id',
+                'billing_mode',
+                'quantity',
+                'unit_rate_snapshot',
                 'duration_seconds',
                 'hourly_rate_snapshot',
                 'project_id_snapshot',
@@ -2266,6 +2375,15 @@ class InvoiceController extends Controller
 
             $projectTotals[$projectKey]['sessions_count'] += 1;
             $projectTotals[$projectKey]['total_duration_seconds'] += $durationSeconds;
+
+            if ($session->isUnitBased()) {
+                $projectTotals[$projectKey]['billable_time_amount_converted'] += max(0.0, (float) ($session->quantity ?? 0))
+                    * (float) ($session->unit_rate_snapshot ?? 0)
+                    * (float) $invoiceRate['conversion_rate'];
+
+                continue;
+            }
+
             $resolvedHourlyRate = $this->resolveSessionHourlyRate(
                 $session,
                 (float) ($invoiceRate['client_hourly_rate'] ?? 0.0),

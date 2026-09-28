@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\TimerSession;
+use App\Models\WorkEntry;
 use Illuminate\Support\Facades\Gate;
 
 class TimesheetSessionPresenter
@@ -15,7 +15,7 @@ class TimesheetSessionPresenter
         'task.project.client:id,name',
     ];
 
-    public function present(TimerSession $session, string $timezone, $generatedAt = null): array
+    public function present(WorkEntry $session, string $timezone, $generatedAt = null): array
     {
         $generatedAt = $generatedAt ?: now();
         $localStart = $session->started_at->copy()->setTimezone($timezone);
@@ -40,6 +40,14 @@ class TimesheetSessionPresenter
                 ? $session->stopped_at->copy()->setTimezone($timezone)->format('H:i')
                 : null,
             'day_key' => $localStart->toDateString(),
+            'billing_mode' => $session->billing_mode ?? WorkEntry::MODE_TIME,
+            'quantity' => $session->quantity === null ? null : (float) $session->quantity,
+            'unit_label' => $session->unit_label_snapshot,
+            'unit_rate' => $session->unit_rate_snapshot === null ? null : (float) $session->unit_rate_snapshot,
+            'quantity_display' => $session->isUnitBased() && $session->quantity !== null
+                ? rtrim(rtrim(number_format((float) $session->quantity, 3, '.', ''), '0'), '.')
+                    .' '.$session->unitLabelFor((float) $session->quantity)
+                : null,
             'elapsed_seconds' => $session->elapsedSeconds($generatedAt),
             'is_running' => $session->isRunning(),
             'is_paused' => $session->isPaused(),

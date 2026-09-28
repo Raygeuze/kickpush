@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\Client;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\WorkEntry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class TaskController extends Controller
 {
@@ -34,7 +36,7 @@ class TaskController extends Controller
 
         $query = Task::query()
             ->where('team_id', $teamId)
-            ->with(['client:id,name', 'project:id,name,client_id'])
+            ->with(['client:id,name', 'project:id,name,client_id,billing_mode,unit_label,unit_label_plural,unit_rate'])
             ->orderBy('name');
 
         if (isset($validated['client_id'])) {
@@ -59,6 +61,10 @@ class TaskController extends Controller
             'project_id' => 'required|integer|exists:projects,id',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:2000',
+            'billing_mode' => ['nullable', Rule::in(WorkEntry::MODES)],
+            'unit_label' => 'nullable|string|max:40',
+            'unit_label_plural' => 'nullable|string|max:40',
+            'unit_rate' => 'nullable|numeric|min:0|max:99999999.99',
         ]);
 
         $client = $this->findClientForActorOrFail((int) $validated['client_id']);
@@ -100,13 +106,20 @@ class TaskController extends Controller
             'project_id' => $project->id,
             'name' => $taskName,
             'description' => $validated['description'] ?? null,
+            'billing_mode' => $validated['billing_mode'] ?? null,
+            'unit_label' => $this->normaliseUnitLabel($validated['unit_label'] ?? null),
+            'unit_label_plural' => $this->normaliseUnitLabel($validated['unit_label_plural'] ?? null),
+            'unit_rate' => $validated['unit_rate'] ?? null,
             'is_active' => true,
             'is_default' => false,
         ]);
 
+        $task->setRelation('project', $project);
+
         return response()->json([
             'message' => 'Task created.',
-            'task' => $task->load(['client:id,name', 'project:id,name,client_id']),
+            'task' => $task->load(['client:id,name', 'project:id,name,client_id,billing_mode,unit_label,unit_label_plural,unit_rate']),
+            'billing_config' => $task->billingConfig(),
         ], 201);
     }
 
@@ -120,6 +133,10 @@ class TaskController extends Controller
             'project_id' => 'sometimes|required|integer|exists:projects,id',
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string|max:2000',
+            'billing_mode' => ['sometimes', 'nullable', Rule::in(WorkEntry::MODES)],
+            'unit_label' => 'sometimes|nullable|string|max:40',
+            'unit_label_plural' => 'sometimes|nullable|string|max:40',
+            'unit_rate' => 'sometimes|nullable|numeric|min:0|max:99999999.99',
             'is_active' => 'sometimes|boolean',
             'is_default' => 'sometimes|boolean',
         ]);
@@ -171,6 +188,22 @@ class TaskController extends Controller
             $task->description = $validated['description'];
         }
 
+        if (array_key_exists('billing_mode', $validated)) {
+            $task->billing_mode = $validated['billing_mode'] ?: null;
+        }
+
+        if (array_key_exists('unit_label', $validated)) {
+            $task->unit_label = $this->normaliseUnitLabel($validated['unit_label']);
+        }
+
+        if (array_key_exists('unit_label_plural', $validated)) {
+            $task->unit_label_plural = $this->normaliseUnitLabel($validated['unit_label_plural']);
+        }
+
+        if (array_key_exists('unit_rate', $validated)) {
+            $task->unit_rate = $validated['unit_rate'];
+        }
+
         if (array_key_exists('is_active', $validated)) {
             if ((bool) $validated['is_active'] === false && $task->is_default) {
                 return response()->json([
@@ -204,9 +237,12 @@ class TaskController extends Controller
             $task->save();
         });
 
+        $freshTask = $task->fresh()->load(['client:id,name', 'project:id,name,client_id,billing_mode,unit_label,unit_label_plural,unit_rate']);
+
         return response()->json([
             'message' => 'Task updated.',
-            'task' => $task->fresh()->load(['client:id,name', 'project:id,name,client_id']),
+            'task' => $freshTask,
+            'billing_config' => $freshTask->billingConfig(),
         ]);
     }
 
@@ -216,7 +252,7 @@ class TaskController extends Controller
 
         $task = $this->findTaskForActorOrFail($taskId);
 
-        $hasSessions = $task->timerSessions()->exists();
+        $hasSessions = $task->workEntries()->exists();
 
         if ($hasSessions) {
             return response()->json([
@@ -254,6 +290,13 @@ class TaskController extends Controller
         return response()->json([
             'message' => 'Task deleted.',
         ]);
+    }
+
+    private function normaliseUnitLabel(?string $label): ?string
+    {
+        $trimmed = trim((string) $label);
+
+        return $trimmed === '' ? null : $trimmed;
     }
 
     private function findTaskForActorOrFail(int $taskId): Task

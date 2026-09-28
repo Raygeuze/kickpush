@@ -42,6 +42,11 @@ export function useTimesheetSessions(props) {
     const dayStartModalOpen = ref(false);
     const formErrors = ref('');
 
+    const unitsForm = reactive({ project_id: '', task_id: '', quantity: '', duration: '', notes: '' });
+    const recordingUnits = ref(false);
+    const unitsModalOpen = ref(false);
+    const unitsFormError = ref('');
+
     watch(() => props.sessions, (next) => {
         liveSessions.value = [...next];
     }, { deep: true });
@@ -592,6 +597,113 @@ export function useTimesheetSessions(props) {
         dayStartModalOpen.value = true;
     }
 
+    const unitTasks = computed(() => (props.tasks || []).filter((task) => task.billing_mode === 'unit'));
+
+    const unitProjects = computed(() => {
+        const projectIds = new Set(unitTasks.value.map((task) => String(task.project_id)));
+
+        return (props.projects || []).filter((project) => projectIds.has(String(project.id)));
+    });
+
+    const unitProjectTasks = computed(() => {
+        if (!unitsForm.project_id) {
+            return [];
+        }
+
+        return unitTasks.value.filter((task) => String(task.project_id) === String(unitsForm.project_id));
+    });
+
+    const selectedUnitTask = computed(() => {
+        return unitTasks.value.find((task) => String(task.id) === String(unitsForm.task_id)) || null;
+    });
+
+    const unitPreviewTotal = computed(() => {
+        const task = selectedUnitTask.value;
+        const quantity = Number(unitsForm.quantity);
+
+        if (!task || task.unit_rate === null || !Number.isFinite(quantity) || quantity <= 0) {
+            return null;
+        }
+
+        return quantity * Number(task.unit_rate);
+    });
+
+    watch(() => unitsForm.project_id, () => {
+        unitsForm.task_id = unitProjectTasks.value[0] ? String(unitProjectTasks.value[0].id) : '';
+    });
+
+    function openRecordUnits() {
+        unitsFormError.value = '';
+        unitsForm.quantity = '';
+        unitsForm.duration = '';
+        unitsForm.notes = '';
+
+        if (!unitsForm.project_id && unitProjects.value[0]) {
+            unitsForm.project_id = String(unitProjects.value[0].id);
+        }
+
+        unitsModalOpen.value = true;
+    }
+
+    function cancelRecordUnits() {
+        unitsModalOpen.value = false;
+        unitsFormError.value = '';
+    }
+
+    async function recordUnits() {
+        const quantity = Number(unitsForm.quantity);
+
+        if (!unitsForm.task_id) {
+            unitsFormError.value = 'Select a project and task before recording units.';
+
+            return;
+        }
+
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+            unitsFormError.value = 'Enter how many units were completed.';
+
+            return;
+        }
+
+        const durationSeconds = manualDurationSeconds(unitsForm.duration);
+
+        if (durationSeconds === false) {
+            unitsFormError.value = 'Enter the time as HH:MM, H:MM or :MM.';
+
+            return;
+        }
+
+        recordingUnits.value = true;
+        unitsFormError.value = '';
+
+        try {
+            const response = await axios.post('/unit-entries', {
+                task_id: Number(unitsForm.task_id),
+                quantity,
+                entry_date: activeDayKey.value,
+                notes: unitsForm.notes.trim() || undefined,
+                ...(durationSeconds ? { duration_minutes: durationSeconds / 60 } : {}),
+            });
+
+            applySessionPayload({
+                session: response.data.entry,
+                server_now: response.data.server_now,
+            });
+            statusMessage.value = response.data.message || 'Units recorded.';
+            unitsForm.quantity = '';
+            unitsForm.duration = '';
+            unitsForm.notes = '';
+            unitsModalOpen.value = false;
+        } catch (error) {
+            unitsFormError.value = error?.response?.data?.message
+                || Object.values(error?.response?.data?.errors || {}).flat()[0]
+                || 'Failed to record units.';
+            statusMessage.value = unitsFormError.value;
+        } finally {
+            recordingUnits.value = false;
+        }
+    }
+
     function cancelDayStartTimer() {
         dayStartModalOpen.value = false;
         formErrors.value = '';
@@ -801,6 +913,18 @@ export function useTimesheetSessions(props) {
         cancelStartTimer,
         openDayStartTimer,
         cancelDayStartTimer,
+        unitsForm,
+        recordingUnits,
+        unitsModalOpen,
+        unitsFormError,
+        unitTasks,
+        unitProjects,
+        unitProjectTasks,
+        selectedUnitTask,
+        unitPreviewTotal,
+        openRecordUnits,
+        cancelRecordUnits,
+        recordUnits,
         startTimer,
         startDayTimer,
         deleteSession,

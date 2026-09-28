@@ -6,8 +6,8 @@ use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\Task;
-use App\Models\TimerSession;
 use App\Models\User;
+use App\Models\WorkEntry;
 use App\Services\TimesheetSessionPresenter;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -31,7 +31,7 @@ class TimesheetController extends Controller
     public function index(Request $request): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
-        Gate::authorize('viewAny', TimerSession::class);
+        Gate::authorize('viewAny', WorkEntry::class);
 
         $validated = $request->validate([
             'view' => ['nullable', 'in:week,day'],
@@ -57,12 +57,12 @@ class TimesheetController extends Controller
             ->startOfWeek(CarbonInterface::MONDAY)
             ->startOfDay();
         $weekEndExclusive = $weekStart->addWeek();
-        $canViewTeamSessions = Gate::allows('viewTeam', TimerSession::class);
+        $canViewTeamSessions = Gate::allows('viewTeam', WorkEntry::class);
         $selectedUserId = $canViewTeamSessions && isset($validated['user_id'])
             ? (int) $validated['user_id']
             : (!$canViewTeamSessions ? (int) $user->id : null);
 
-        $query = TimerSession::query()
+        $query = WorkEntry::query()
             ->where('team_id', $team->id)
             ->where('started_at', '>=', $weekStart->utc())
             ->where('started_at', '<', $weekEndExclusive->utc())
@@ -105,10 +105,10 @@ class TimesheetController extends Controller
         $sessions = $query
             ->orderBy('started_at')
             ->get()
-            ->map(fn (TimerSession $session): array => $this->presenter->present($session, $timezone, $generatedAt))
+            ->map(fn (WorkEntry $session): array => $this->presenter->present($session, $timezone, $generatedAt))
             ->values();
 
-        $activeTimerSession = TimerSession::query()
+        $activeTimerSession = WorkEntry::query()
             ->where('team_id', $team->id)
             ->where('user_id', $user->id)
             ->whereNull('stopped_at')
@@ -161,14 +161,22 @@ class TimesheetController extends Controller
             'tasks' => Task::query()
                 ->where('team_id', $team->id)
                 ->where('is_active', true)
+                ->with('project:id,billing_mode,unit_label,unit_label_plural,unit_rate')
                 ->orderBy('name')
-                ->get(['id', 'project_id', 'client_id', 'name']),
+                ->get(['id', 'project_id', 'client_id', 'name', 'billing_mode', 'unit_label', 'unit_label_plural', 'unit_rate'])
+                ->map(fn (Task $task): array => [
+                    'id' => (int) $task->id,
+                    'project_id' => (int) $task->project_id,
+                    'client_id' => (int) $task->client_id,
+                    'name' => (string) $task->name,
+                ] + $task->billingConfig())
+                ->values(),
             'draftInvoices' => Invoice::query()
                 ->where('team_id', $team->id)
                 ->where('status', 'draft')
                 ->orderByDesc('id')
                 ->get(['id', 'client_id', 'invoice_number']),
-            'canCreateSessions' => Gate::allows('create', TimerSession::class),
+            'canCreateSessions' => Gate::allows('create', WorkEntry::class),
             'teamMembers' => $teamMembers,
             'canViewTeamSessions' => $canViewTeamSessions,
             'filters' => [

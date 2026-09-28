@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
-use App\Models\TimerSession;
-use App\Policies\TimerSessionPolicy;
+use App\Models\WorkEntry;
+use App\Policies\WorkEntryPolicy;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
@@ -25,7 +25,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Gate::policy(TimerSession::class, TimerSessionPolicy::class);
+        Gate::policy(WorkEntry::class, WorkEntryPolicy::class);
 
         if (Vite::isRunningHot()) {
             $viteConnection = @stream_socket_client('tcp://vite:5174', $errorCode, $errorMessage, 0.2);

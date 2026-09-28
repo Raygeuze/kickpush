@@ -7,7 +7,7 @@ use App\Models\BusinessExpense;
 use App\Models\LineItem;
 use App\Models\FinancialYear;
 use App\Models\Invoice;
-use App\Models\TimerSession;
+use App\Models\WorkEntry;
 use App\Models\User;
 use App\Models\UserAdditionalTax;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -103,7 +103,7 @@ class InvoiceFinancialYearTaxSummaryCurrencyTest extends TestCase
             'conversion_rate_fetched_at' => now(),
         ]);
 
-        TimerSession::create([
+        WorkEntry::create([
             'user_id' => $user->id,
             'invoice_id' => $invoiceOne->id,
             'started_at' => now()->subHours(3),
@@ -112,7 +112,7 @@ class InvoiceFinancialYearTaxSummaryCurrencyTest extends TestCase
             'accumulated_seconds' => 0,
         ]);
 
-        TimerSession::create([
+        WorkEntry::create([
             'user_id' => $user->id,
             'invoice_id' => $invoiceTwo->id,
             'started_at' => now()->subHours(2),

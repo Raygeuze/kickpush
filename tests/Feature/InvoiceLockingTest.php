@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\FinancialYear;
 use App\Models\Invoice;
-use App\Models\TimerSession;
+use App\Models\WorkEntry;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -40,7 +40,7 @@ class InvoiceLockingTest extends TestCase
     {
         $user = User::factory()->withPersonalTeam()->create();
         $invoice = $this->createInvoice($user, 'finalized');
-        $session = TimerSession::create([
+        $session = WorkEntry::create([
             'user_id' => $user->id,
             'team_id' => $user->currentTeam->id,
             'started_at' => now()->subMinutes(10),

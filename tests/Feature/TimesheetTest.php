@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\TimerSession;
+use App\Models\WorkEntry;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -87,7 +87,7 @@ class TimesheetTest extends TestCase
     public function test_active_running_timer_is_included_in_active_timer_session_prop(): void
     {
         $user = User::factory()->withPersonalTeam()->create();
-        $runningSession = TimerSession::create([
+        $runningSession = WorkEntry::create([
             'user_id' => $user->id,
             'team_id' => $user->currentTeam->id,
             'started_at' => '2026-09-01 10:00:00',
@@ -113,9 +113,9 @@ class TimesheetTest extends TestCase
         return $user;
     }
 
-    private function createSession(User $user, string $startedAt): TimerSession
+    private function createSession(User $user, string $startedAt): WorkEntry
     {
-        return TimerSession::create([
+        return WorkEntry::create([
             'user_id' => $user->id,
             'user_id_snapshot' => $user->id,
             'user_name_snapshot' => $user->name,

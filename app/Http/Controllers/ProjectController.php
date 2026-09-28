@@ -6,13 +6,14 @@ use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\ProjectNote;
-use App\Models\TimerSession;
 use App\Models\User;
+use App\Models\WorkEntry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -27,6 +28,13 @@ class ProjectController extends Controller
         return (int) $user->currentTeam->id;
     }
 
+    private function normaliseUnitLabel(?string $label): ?string
+    {
+        $trimmed = trim((string) $label);
+
+        return $trimmed === '' ? null : $trimmed;
+    }
+
     public function show(Request $request, int $projectId): Response
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
@@ -35,8 +43,8 @@ class ProjectController extends Controller
             'user_id' => 'nullable|integer|exists:users,id',
         ]);
 
-        Gate::authorize('viewAny', TimerSession::class);
-        $canViewTeamSessions = Gate::allows('viewTeam', TimerSession::class);
+        Gate::authorize('viewAny', WorkEntry::class);
+        $canViewTeamSessions = Gate::allows('viewTeam', WorkEntry::class);
         $selectedUserId = $canViewTeamSessions
             ? (isset($validated['user_id']) ? (int) $validated['user_id'] : null)
             : (int) Auth::id();
@@ -68,7 +76,9 @@ class ProjectController extends Controller
                     'assigned_sessions_count' => 0,
                     'unassigned_sessions_count' => 0,
                     'total_duration_seconds' => 0,
+                    'total_quantity' => 0.0,
                     'total_billable_amount' => 0,
+                    'effective_hourly_rate' => 0.0,
                     'average_session_seconds' => 0,
                     'project_invoice_count' => 0,
                     'project_paid_invoice_count' => 0,
@@ -86,7 +96,7 @@ class ProjectController extends Controller
             ]);
         }
 
-        $projectSessionsQuery = TimerSession::query()
+        $projectSessionsQuery = WorkEntry::query()
             ->where('team_id', $this->currentTeamIdOrFail())
             ->where(function (Builder $query) use ($taskIds, $project): void {
                 $query->whereIn('task_id', $taskIds)
@@ -104,7 +114,7 @@ class ProjectController extends Controller
             ->select(['user_id', 'user_id_snapshot', 'user_name_snapshot'])
             ->distinct()
             ->get()
-            ->map(function (TimerSession $session): ?array {
+            ->map(function (WorkEntry $session): ?array {
                 $userId = $session->user_id ?? $session->user_id_snapshot;
                 $userName = optional($session->user)->name ?? $session->user_name_snapshot;
 
@@ -144,7 +154,9 @@ class ProjectController extends Controller
                     'assigned_sessions_count' => 0,
                     'unassigned_sessions_count' => 0,
                     'total_duration_seconds' => 0,
+                    'total_quantity' => 0.0,
                     'total_billable_amount' => 0,
+                    'effective_hourly_rate' => 0.0,
                     'average_session_seconds' => 0,
                     'project_invoice_count' => 0,
                     'project_paid_invoice_count' => 0,
@@ -184,6 +196,11 @@ class ProjectController extends Controller
                 'user_id',
                 'task_id',
                 'invoice_id',
+                'billing_mode',
+                'quantity',
+                'unit_rate_snapshot',
+                'unit_label_snapshot',
+                'unit_label_plural_snapshot',
                 'started_at',
                 'stopped_at',
                 'duration_seconds',
@@ -235,7 +252,7 @@ class ProjectController extends Controller
         }
 
         $sessionCount = $sessions->count();
-        $totalDurationSeconds = (int) $sessions->sum(fn (TimerSession $session): int => (int) ($session->duration_seconds ?? 0));
+        $totalDurationSeconds = (int) $sessions->sum(fn (WorkEntry $session): int => (int) ($session->duration_seconds ?? 0));
         $assignedSessionsCount = (int) $sessions->whereNotNull('invoice_id')->count();
         $unassignedSessionsCount = max(0, $sessionCount - $assignedSessionsCount);
         $averageSessionSeconds = $sessionCount > 0 ? (int) round($totalDurationSeconds / $sessionCount) : 0;
@@ -249,17 +266,28 @@ class ProjectController extends Controller
         $userRateMap = $this->userChargeOutRateMapForIds($sessionUserIds);
         $sessionBillableById = [];
         $totalBillableAmount = 0.0;
+        $totalQuantity = 0.0;
 
         foreach ($sessions as $session) {
-            $durationSeconds = max(0, (int) ($session->duration_seconds ?? 0));
-            $effectiveHourlyRate = $this->resolveSessionHourlyRate($session, $hourlyRate, $userRateMap);
-            $billableAmount = round(($durationSeconds / 3600) * $effectiveHourlyRate, 2);
+            if ($session->isUnitBased()) {
+                $quantity = max(0.0, (float) ($session->quantity ?? 0));
+                $billableAmount = round($quantity * (float) ($session->unit_rate_snapshot ?? 0), 2);
+                $totalQuantity += $quantity;
+            } else {
+                $durationSeconds = max(0, (int) ($session->duration_seconds ?? 0));
+                $sessionHourlyRate = $this->resolveSessionHourlyRate($session, $hourlyRate, $userRateMap);
+                $billableAmount = round(($durationSeconds / 3600) * $sessionHourlyRate, 2);
+            }
 
             $sessionBillableById[(int) $session->id] = $billableAmount;
             $totalBillableAmount += $billableAmount;
         }
 
         $totalBillableAmount = round($totalBillableAmount, 2);
+        // Revenue per hour actually worked, which is the number unit-priced work is really judged on.
+        $effectiveHourlyRate = $totalDurationSeconds > 0
+            ? round($totalBillableAmount / ($totalDurationSeconds / 3600), 2)
+            : 0.0;
 
         $taskSummariesById = [];
 
@@ -275,6 +303,7 @@ class ProjectController extends Controller
                 'unassigned_sessions_count' => 0,
                 'total_duration_seconds' => 0,
                 'total_hours' => 0,
+                'total_quantity' => 0.0,
                 'billable_amount' => 0.0,
                 'average_session_seconds' => 0,
                 'last_tracked_at' => null,
@@ -293,6 +322,7 @@ class ProjectController extends Controller
 
             $summary['sessions_count'] += 1;
             $summary['total_duration_seconds'] += $durationSeconds;
+            $summary['total_quantity'] += $session->isUnitBased() ? max(0.0, (float) ($session->quantity ?? 0)) : 0.0;
             $summary['billable_amount'] += (float) ($sessionBillableById[(int) $session->id] ?? 0.0);
 
             if ($session->invoice_id !== null) {
@@ -310,6 +340,7 @@ class ProjectController extends Controller
 
         $taskSummaries = array_values(array_map(function (array $summary): array {
             $summary['total_hours'] = round(((int) $summary['total_duration_seconds']) / 3600, 2);
+            $summary['total_quantity'] = round((float) $summary['total_quantity'], 3);
             $summary['billable_amount'] = round((float) $summary['billable_amount'], 2);
             $summary['average_session_seconds'] = $summary['sessions_count'] > 0
                 ? (int) round(((int) $summary['total_duration_seconds']) / (int) $summary['sessions_count'])
@@ -327,7 +358,7 @@ class ProjectController extends Controller
             return (int) $b['total_duration_seconds'] <=> (int) $a['total_duration_seconds'];
         });
 
-        $recentSessions = $sessions->take(30)->map(function (TimerSession $session) use ($sessionBillableById): array {
+        $recentSessions = $sessions->take(30)->map(function (WorkEntry $session) use ($sessionBillableById): array {
             $durationSeconds = (int) ($session->duration_seconds ?? 0);
 
             return [
@@ -341,6 +372,9 @@ class ProjectController extends Controller
                 'started_at' => $session->started_at ? $session->started_at->toIso8601String() : null,
                 'stopped_at' => $session->stopped_at ? $session->stopped_at->toIso8601String() : null,
                 'duration_seconds' => $durationSeconds,
+                'billing_mode' => $session->billing_mode ?? WorkEntry::MODE_TIME,
+                'quantity' => $session->quantity === null ? null : (float) $session->quantity,
+                'unit_label' => $session->unit_label_snapshot,
                 'billable_amount' => (float) ($sessionBillableById[(int) $session->id] ?? 0.0),
             ];
         })->values();
@@ -366,7 +400,9 @@ class ProjectController extends Controller
                 'assigned_sessions_count' => $assignedSessionsCount,
                 'unassigned_sessions_count' => $unassignedSessionsCount,
                 'total_duration_seconds' => $totalDurationSeconds,
+                'total_quantity' => round($totalQuantity, 3),
                 'total_billable_amount' => $totalBillableAmount,
+                'effective_hourly_rate' => $effectiveHourlyRate,
                 'average_session_seconds' => $averageSessionSeconds,
                 'project_invoice_count' => $projectInvoiceCount,
                 'project_paid_invoice_count' => $projectPaidInvoiceCount,
@@ -500,6 +536,10 @@ class ProjectController extends Controller
             'client_id' => 'required|integer|exists:clients,id',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:2000',
+            'billing_mode' => ['nullable', Rule::in(WorkEntry::MODES)],
+            'unit_label' => 'nullable|string|max:40',
+            'unit_label_plural' => 'nullable|string|max:40',
+            'unit_rate' => 'nullable|numeric|min:0|max:99999999.99',
         ]);
 
         $client = $this->findClientForActorOrFail((int) $validated['client_id']);
@@ -528,6 +568,10 @@ class ProjectController extends Controller
             'client_id' => $client->id,
             'name' => $projectName,
             'description' => $validated['description'] ?? null,
+            'billing_mode' => $validated['billing_mode'] ?? null,
+            'unit_label' => $this->normaliseUnitLabel($validated['unit_label'] ?? null),
+            'unit_label_plural' => $this->normaliseUnitLabel($validated['unit_label_plural'] ?? null),
+            'unit_rate' => $validated['unit_rate'] ?? null,
             'is_active' => true,
         ]);
 
@@ -546,6 +590,10 @@ class ProjectController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string|max:2000',
+            'billing_mode' => ['sometimes', 'nullable', Rule::in(WorkEntry::MODES)],
+            'unit_label' => 'sometimes|nullable|string|max:40',
+            'unit_label_plural' => 'sometimes|nullable|string|max:40',
+            'unit_rate' => 'sometimes|nullable|numeric|min:0|max:99999999.99',
             'is_active' => 'sometimes|boolean',
         ]);
 
@@ -575,6 +623,22 @@ class ProjectController extends Controller
 
         if (array_key_exists('description', $validated)) {
             $project->description = $validated['description'];
+        }
+
+        if (array_key_exists('billing_mode', $validated)) {
+            $project->billing_mode = $validated['billing_mode'] ?: null;
+        }
+
+        if (array_key_exists('unit_label', $validated)) {
+            $project->unit_label = $this->normaliseUnitLabel($validated['unit_label']);
+        }
+
+        if (array_key_exists('unit_label_plural', $validated)) {
+            $project->unit_label_plural = $this->normaliseUnitLabel($validated['unit_label_plural']);
+        }
+
+        if (array_key_exists('unit_rate', $validated)) {
+            $project->unit_rate = $validated['unit_rate'];
         }
 
         if (array_key_exists('is_active', $validated)) {
@@ -670,7 +734,7 @@ class ProjectController extends Controller
     /**
      * @param array<int, float> $userRateMap
      */
-    private function resolveSessionHourlyRate(TimerSession $session, float $clientHourlyRate, array $userRateMap): float
+    private function resolveSessionHourlyRate(WorkEntry $session, float $clientHourlyRate, array $userRateMap): float
     {
         if ($session->hourly_rate_snapshot !== null) {
             return (float) $session->hourly_rate_snapshot;

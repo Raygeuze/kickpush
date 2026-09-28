@@ -17,8 +17,8 @@ class ClientController extends Controller
         return Client::query()
             ->where('team_id', $teamId)
             ->with([
-                'projects:id,client_id,name,description,is_active,created_at,updated_at',
-                'tasks:id,client_id,project_id,name,description,is_active,is_default,created_at,updated_at',
+                'projects:id,client_id,name,description,billing_mode,unit_label,unit_label_plural,unit_rate,is_active,created_at,updated_at',
+                'tasks:id,client_id,project_id,name,description,billing_mode,unit_label,unit_label_plural,unit_rate,is_active,is_default,created_at,updated_at',
             ])
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'currency', 'hourly_rate', 'notes', 'created_at', 'updated_at']);

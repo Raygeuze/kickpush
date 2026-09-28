@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Daily from './Daily.vue';
+import RecordUnitsModal from './Partials/RecordUnitsModal.vue';
 import StartTimerModal from './Partials/StartTimerModal.vue';
 import Weekly from './Weekly.vue';
 import { useTimesheetSessions } from './composables/useTimesheetSessions';
@@ -132,6 +133,17 @@ const activeFilterCount = computed(() => {
                             <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                             Start timer
                         </button>
+
+                        <button
+                            v-if="state.currentViewMode === 'day' && canCreateSessions && state.unitTasks.length > 0"
+                            type="button"
+                            class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+                            title="Record completed units"
+                            @click="state.openRecordUnits"
+                        >
+                            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                            Record units
+                        </button>
                     </div>
                 </header>
 
@@ -241,6 +253,12 @@ const activeFilterCount = computed(() => {
                     source="day"
                     :day-label="state.activeDay.full_label"
                     show-project
+                />
+
+                <RecordUnitsModal
+                    :show="state.unitsModalOpen"
+                    :state="state"
+                    :day-label="state.activeDay.full_label"
                 />
             </div>
         </div>

@@ -10,6 +10,7 @@ use App\Http\Controllers\TeamMemberChargeOutRateController;
 use App\Http\Controllers\TeamPaymentInformationController;
 use App\Http\Controllers\TimerSessionController;
 use App\Http\Controllers\TimesheetController;
+use App\Http\Controllers\UnitEntryController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -98,6 +99,9 @@ Route::middleware(['auth', 'team_employee_permissions'])->group(function () {
     Route::delete('/timer/sessions/{sessionId}/invoice', [TimerSessionController::class, 'detachSessionFromInvoice'])->name('timer.sessions.invoice.detach');
 
     Route::delete('/timer/{sessionId}', [TimerSessionController::class, 'destroy'])->name('timer.destroy');
+
+    Route::post('/unit-entries', [UnitEntryController::class, 'store'])->name('unitEntries.store');
+    Route::patch('/unit-entries/{entryId}', [UnitEntryController::class, 'update'])->name('unitEntries.update');
 });
 
 require __DIR__.'/auth.php';

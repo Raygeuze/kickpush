@@ -54,9 +54,9 @@ class Invoice extends Model
         return $this->belongsTo(FinancialYear::class);
     }
 
-    public function timerSessions(): HasMany
+    public function workEntries(): HasMany
     {
-        return $this->hasMany(TimerSession::class)
+        return $this->hasMany(WorkEntry::class)
             ->orderByDesc('started_at');
     }
 

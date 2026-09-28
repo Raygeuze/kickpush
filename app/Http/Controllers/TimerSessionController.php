@@ -5,11 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\Task;
-use App\Models\TimerSession;
 use App\Models\User;
-use App\Services\TimerSessionBillingSnapshot;
-use App\Services\TimerSessionService;
+use App\Models\WorkEntry;
 use App\Services\TimesheetSessionPresenter;
+use App\Services\WorkEntryBillingSnapshot;
+use App\Services\WorkEntryService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,15 +21,15 @@ use Illuminate\Support\Facades\Gate;
 
 class TimerSessionController extends Controller
 {
-    private TimerSessionBillingSnapshot $billingSnapshots;
+    private WorkEntryBillingSnapshot $billingSnapshots;
 
-    private TimerSessionService $sessions;
+    private WorkEntryService $sessions;
 
     private TimesheetSessionPresenter $presenter;
 
     public function __construct(
-        TimerSessionBillingSnapshot $billingSnapshots,
-        TimerSessionService $sessions,
+        WorkEntryBillingSnapshot $billingSnapshots,
+        WorkEntryService $sessions,
         TimesheetSessionPresenter $presenter
     ) {
         $this->billingSnapshots = $billingSnapshots;
@@ -58,7 +58,7 @@ class TimerSessionController extends Controller
     public function history(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
-        Gate::authorize('viewAny', TimerSession::class);
+        Gate::authorize('viewAny', WorkEntry::class);
 
         $validated = $request->validate([
             'limit' => 'nullable|integer|min:1|max:50',
@@ -70,9 +70,9 @@ class TimerSessionController extends Controller
         $confirmedOnly = (bool) ($validated['confirmed_only'] ?? false);
         $invoiceId = $validated['invoice_id'] ?? null;
 
-        $query = Gate::allows('viewTeam', TimerSession::class)
-            ? $this->applyTeamScope(TimerSession::query())
-            : $this->applyCurrentUserScope(TimerSession::query());
+        $query = Gate::allows('viewTeam', WorkEntry::class)
+            ? $this->applyTeamScope(WorkEntry::query())
+            : $this->applyCurrentUserScope(WorkEntry::query());
 
         if ($confirmedOnly) {
             $query->whereNotNull('invoice_id');
@@ -118,7 +118,7 @@ class TimerSessionController extends Controller
     public function start(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
-        Gate::authorize('create', TimerSession::class);
+        Gate::authorize('create', WorkEntry::class);
 
         $validated = $request->validate([
             'project_id' => 'required|integer|exists:projects,id',
@@ -155,10 +155,11 @@ class TimerSessionController extends Controller
         $user = Auth::user();
         abort_unless($user instanceof User, 401, 'Authentication required.');
 
-        $session = TimerSession::create(array_merge([
+        $session = WorkEntry::create(array_merge([
             'user_id' => Auth::id(),
             'team_id' => $this->currentTeamIdOrFail(),
             'task_id' => $task->id,
+            'billing_mode' => WorkEntry::MODE_TIME,
             'started_at' => $startedAt,
             'active_started_at' => $startedAt,
             'accumulated_seconds' => 0,
@@ -201,7 +202,7 @@ class TimerSessionController extends Controller
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
-        $sessionQuery = $this->applyTeamScope(TimerSession::query());
+        $sessionQuery = $this->applyTeamScope(WorkEntry::query());
 
         $session = $sessionQuery
             ->with('invoice')
@@ -228,10 +229,10 @@ class TimerSessionController extends Controller
         abort_unless(Auth::check(), 401, 'Authentication required.');
 
         $validated = $request->validate([
-            'session_id' => 'required|integer|exists:timer_sessions,id',
+            'session_id' => 'required|integer|exists:work_entries,id',
         ]);
 
-        $session = $this->applyCurrentUserScope(TimerSession::query())
+        $session = $this->applyCurrentUserScope(WorkEntry::query())
             ->with('task.project')
             ->whereKey((int) $validated['session_id'])
             ->first();
@@ -285,7 +286,7 @@ class TimerSessionController extends Controller
         $sessionId = (int) $session->id;
 
         $assignment = DB::transaction(function () use ($sessionId, $teamId, $userId, $taskClientId): array {
-            $lockedSession = $this->applyCurrentUserScope(TimerSession::query())
+            $lockedSession = $this->applyCurrentUserScope(WorkEntry::query())
                 ->lockForUpdate()
                 ->whereKey($sessionId)
                 ->first();
@@ -329,7 +330,7 @@ class TimerSessionController extends Controller
             ];
         });
 
-        /** @var TimerSession $assignedSession */
+        /** @var WorkEntry $assignedSession */
         $assignedSession = $assignment['session'];
         /** @var Invoice $assignedInvoice */
         $assignedInvoice = $assignment['invoice'];
@@ -344,7 +345,7 @@ class TimerSessionController extends Controller
     public function startSessionForTask(Request $request): JsonResponse
     {
         abort_unless(Auth::check(), 401, 'Authentication required.');
-        Gate::authorize('create', TimerSession::class);
+        Gate::authorize('create', WorkEntry::class);
 
         $validated = $request->validate([
             'project_id' => 'nullable|integer',
@@ -599,7 +600,7 @@ class TimerSessionController extends Controller
         return max(60, (int) round(((float) $validated['duration_minutes']) * 60));
     }
 
-    private function invoiceClientIdForSession(TimerSession $session): ?int
+    private function invoiceClientIdForSession(WorkEntry $session): ?int
     {
         $session->loadMissing('invoice');
 
@@ -608,9 +609,9 @@ class TimerSessionController extends Controller
             : null;
     }
 
-    private function findTeamSessionOrFail(int $sessionId): TimerSession
+    private function findTeamSessionOrFail(int $sessionId): WorkEntry
     {
-        $session = $this->applyTeamScope(TimerSession::query())
+        $session = $this->applyTeamScope(WorkEntry::query())
             ->with(TimesheetSessionPresenter::RELATIONS)
             ->whereKey($sessionId)
             ->first();
@@ -633,7 +634,7 @@ class TimerSessionController extends Controller
         return $invoice;
     }
 
-    private function sessionResponse(TimerSession $session, string $message, int $status = 200): JsonResponse
+    private function sessionResponse(WorkEntry $session, string $message, int $status = 200): JsonResponse
     {
         $session->refresh()->load(TimesheetSessionPresenter::RELATIONS);
         $generatedAt = now();
@@ -645,9 +646,9 @@ class TimerSessionController extends Controller
         ], $status);
     }
 
-    private function findActiveSession(): ?TimerSession
+    private function findActiveSession(): ?WorkEntry
     {
-        return $this->applyCurrentUserScope(TimerSession::query())
+        return $this->applyCurrentUserScope(WorkEntry::query())
             ->whereNull('stopped_at')
             ->latest('started_at')
             ->first();
