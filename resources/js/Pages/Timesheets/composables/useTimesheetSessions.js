@@ -31,7 +31,7 @@ export function useTimesheetSessions(props) {
     const liveSessions = ref([...props.sessions]);
     const liveServerNow = ref(props.serverNow);
     const editingSessionId = ref(null);
-    const editForm = reactive({ task_id: '', session_date: '', duration: '', invoice_id: '', notes: '' });
+    const editForm = reactive({ task_id: '', session_date: '', duration: '', invoice_id: '', quantity: '', notes: '' });
 
     const startingCell = ref(null);
     const startForm = reactive({ project_id: '', task_id: '', duration: '', notes: '' });
@@ -42,7 +42,8 @@ export function useTimesheetSessions(props) {
     const dayStartModalOpen = ref(false);
     const formErrors = ref('');
 
-    const unitsForm = reactive({ project_id: '', task_id: '', quantity: '', duration: '', notes: '' });
+    const unitsForm = reactive({ mode: 'record', project_id: '', task_id: '', quantity: '', duration: '', notes: '' });
+    const startingUnitSession = ref(false);
     const recordingUnits = ref(false);
     const unitsModalOpen = ref(false);
     const unitsFormError = ref('');
@@ -420,13 +421,13 @@ export function useTimesheetSessions(props) {
         try {
             const response = await request();
             applySessionPayload(response.data);
-            statusMessage.value = response.data?.message || 'Timer session updated.';
+            statusMessage.value = response.data?.message || 'Session updated.';
 
             return response.data || {};
         } catch (error) {
             formErrors.value = error?.response?.data?.message
                 || Object.values(error?.response?.data?.errors || {}).flat()[0]
-                || 'Failed to update timer session.';
+                || 'Failed to update session.';
             statusMessage.value = formErrors.value;
 
             return null;
@@ -436,11 +437,19 @@ export function useTimesheetSessions(props) {
     }
 
     function stopSession(session) {
-        return mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/stop`));
+        const endpoint = session.billing_mode === 'unit'
+            ? `/unit-sessions/${session.id}/stop`
+            : `/timer/sessions/${session.id}/stop`;
+
+        return mutateSession(session.id, () => axios.post(endpoint));
     }
 
     function restartSession(session) {
-        return mutateSession(session.id, () => axios.post(`/timer/sessions/${session.id}/restart`));
+        const endpoint = session.billing_mode === 'unit'
+            ? `/unit-sessions/${session.id}/restart`
+            : `/timer/sessions/${session.id}/restart`;
+
+        return mutateSession(session.id, () => axios.post(endpoint));
     }
 
     function detachInvoice(session) {
@@ -491,6 +500,7 @@ export function useTimesheetSessions(props) {
         editForm.session_date = session.day_key;
         editForm.duration = formatClockDuration(sessionDuration(session));
         editForm.invoice_id = session.invoice_id ? String(session.invoice_id) : '';
+        editForm.quantity = session.quantity !== null ? String(session.quantity) : '';
         editForm.notes = session.notes || '';
     }
 
@@ -528,6 +538,20 @@ export function useTimesheetSessions(props) {
             payload.duration_seconds = nextSeconds;
         }
 
+        if (session.billing_mode === 'unit') {
+            const quantity = Number(editForm.quantity);
+
+            if (!Number.isFinite(quantity) || quantity <= 0) {
+                formErrors.value = 'Unit sessions require a quantity greater than zero.';
+
+                return;
+            }
+
+            if (quantity !== Number(session.quantity || 0)) {
+                payload.quantity = quantity;
+            }
+        }
+
         if (session.can_edit_notes && editForm.notes !== (session.notes || '')) {
             payload.notes = editForm.notes;
         }
@@ -538,7 +562,11 @@ export function useTimesheetSessions(props) {
             return;
         }
 
-        const saved = await mutateSession(session.id, () => axios.patch(`/timer/sessions/${session.id}`, payload));
+        const endpoint = session.billing_mode === 'unit'
+            ? `/unit-sessions/${session.id}`
+            : `/timer/sessions/${session.id}`;
+
+        const saved = await mutateSession(session.id, () => axios.patch(endpoint, payload));
 
         if (saved) {
             editingSessionId.value = null;
@@ -556,6 +584,9 @@ export function useTimesheetSessions(props) {
     }
 
     const hasActiveSession = computed(() => liveSessions.value.some((session) => (session.is_running || session.is_paused) && session.can_operate));
+    const activeUnitSession = computed(() => {
+        return liveSessions.value.find((session) => session.billing_mode === 'unit' && (session.is_running || session.is_paused) && session.can_operate) || null;
+    });
 
     function openStartTimer() {
         if (!selectedCell.value) {
@@ -634,6 +665,7 @@ export function useTimesheetSessions(props) {
 
     function openRecordUnits() {
         unitsFormError.value = '';
+        unitsForm.mode = 'record';
         unitsForm.quantity = '';
         unitsForm.duration = '';
         unitsForm.notes = '';
@@ -643,6 +675,61 @@ export function useTimesheetSessions(props) {
         }
 
         unitsModalOpen.value = true;
+    }
+
+    function resetUnitForm() {
+        unitsForm.quantity = '';
+        unitsForm.duration = '';
+        unitsForm.notes = '';
+    }
+
+    async function startUnitSession() {
+        const quantity = Number(unitsForm.quantity);
+
+        if (!unitsForm.task_id) {
+            unitsFormError.value = 'Select a project and task before starting a unit session.';
+
+            return;
+        }
+
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+            unitsFormError.value = 'Enter how many units this session is for.';
+
+            return;
+        }
+
+        if (hasActiveSession.value) {
+            unitsFormError.value = 'A session is already running. Stop it before starting another.';
+
+            return;
+        }
+
+        startingUnitSession.value = true;
+        unitsFormError.value = '';
+
+        try {
+            const response = await axios.post('/unit-sessions', {
+                task_id: Number(unitsForm.task_id),
+                quantity,
+                session_date: activeDayKey.value,
+                notes: unitsForm.notes.trim() || undefined,
+            });
+
+            applySessionPayload({
+                session: response.data.session,
+                server_now: response.data.server_now,
+            });
+            statusMessage.value = response.data.message || 'Unit session started.';
+            resetUnitForm();
+            unitsModalOpen.value = false;
+        } catch (error) {
+            unitsFormError.value = error?.response?.data?.message
+                || Object.values(error?.response?.data?.errors || {}).flat()[0]
+                || 'Failed to start unit session.';
+            statusMessage.value = unitsFormError.value;
+        } finally {
+            startingUnitSession.value = false;
+        }
     }
 
     function cancelRecordUnits() {
@@ -690,9 +777,7 @@ export function useTimesheetSessions(props) {
                 server_now: response.data.server_now,
             });
             statusMessage.value = response.data.message || 'Units recorded.';
-            unitsForm.quantity = '';
-            unitsForm.duration = '';
-            unitsForm.notes = '';
+            resetUnitForm();
             unitsModalOpen.value = false;
         } catch (error) {
             unitsFormError.value = error?.response?.data?.message
@@ -785,7 +870,7 @@ export function useTimesheetSessions(props) {
     }
 
     async function deleteSession(session) {
-        if (!session.can_delete || !window.confirm(`Delete timer session #${session.id}? This cannot be undone.`)) {
+        if (!session.can_delete || !window.confirm(`Delete session #${session.id}? This cannot be undone.`)) {
             return;
         }
 
@@ -793,10 +878,10 @@ export function useTimesheetSessions(props) {
 
         try {
             const response = await axios.delete(`/timer/${session.id}`);
-            statusMessage.value = response.data.message || 'Timer session deleted.';
+            statusMessage.value = response.data.message || 'Session deleted.';
             liveSessions.value = liveSessions.value.filter((item) => item.id !== session.id);
         } catch (error) {
-            statusMessage.value = error?.response?.data?.message || 'Failed to delete timer session.';
+            statusMessage.value = error?.response?.data?.message || 'Failed to delete session.';
         } finally {
             deletingSessionIds.value = deletingSessionIds.value.filter((id) => id !== session.id);
         }
@@ -914,9 +999,11 @@ export function useTimesheetSessions(props) {
         openDayStartTimer,
         cancelDayStartTimer,
         unitsForm,
+        startingUnitSession,
         recordingUnits,
         unitsModalOpen,
         unitsFormError,
+        activeUnitSession,
         unitTasks,
         unitProjects,
         unitProjectTasks,
@@ -924,6 +1011,7 @@ export function useTimesheetSessions(props) {
         unitPreviewTotal,
         openRecordUnits,
         cancelRecordUnits,
+        startUnitSession,
         recordUnits,
         startTimer,
         startDayTimer,
