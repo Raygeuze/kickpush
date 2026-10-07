@@ -16,10 +16,6 @@ class Project extends Model
         'client_id',
         'name',
         'description',
-        'billing_mode',
-        'unit_label',
-        'unit_label_plural',
-        'unit_rate',
         'is_active',
     ];
 
@@ -27,7 +23,6 @@ class Project extends Model
     {
         return [
             'is_active' => 'boolean',
-            'unit_rate' => 'decimal:2',
         ];
     }
 

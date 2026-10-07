@@ -41,16 +41,13 @@ const clientForm = ref({
 const projectDraft = ref({
     name: '',
     description: '',
-    billing_mode: '',
-    unit_label: '',
-    unit_rate: '',
 });
 
 const taskDraft = ref({
     project_id: '',
     name: '',
     description: '',
-    billing_mode: '',
+    billing_mode: 'time',
     unit_label: '',
     unit_rate: '',
 });
@@ -58,16 +55,13 @@ const taskDraft = ref({
 const projectEditForm = ref({
     name: '',
     description: '',
-    billing_mode: '',
-    unit_label: '',
-    unit_rate: '',
 });
 
 const taskEditForm = ref({
     project_id: '',
     name: '',
     description: '',
-    billing_mode: '',
+    billing_mode: 'time',
     unit_label: '',
     unit_rate: '',
 });
@@ -106,9 +100,6 @@ function resetProjectDraft() {
     projectDraft.value = {
         name: '',
         description: '',
-        billing_mode: '',
-        unit_label: '',
-        unit_rate: '',
     };
 }
 
@@ -117,7 +108,7 @@ function resetTaskDraft() {
         project_id: selectedClientActiveProjects.value[0]?.id ? String(selectedClientActiveProjects.value[0].id) : '',
         name: '',
         description: '',
-        billing_mode: '',
+        billing_mode: 'time',
         unit_label: '',
         unit_rate: '',
     };
@@ -208,29 +199,22 @@ const BILLING_MODE_LABELS = {
     fixed: 'Fixed fee',
 };
 
-function billingPayload(form) {
+function taskBillingPayload(form) {
     const rate = String(form.unit_rate ?? '').trim();
 
     return {
-        billing_mode: form.billing_mode || null,
+        billing_mode: form.billing_mode || 'time',
         unit_label: form.unit_label?.trim() || null,
         unit_rate: rate === '' ? null : Number(rate),
     };
 }
 
-/**
- * Mirrors Task::billingConfig() on the server so the list can show what a task will actually bill at.
- */
 function effectiveTaskBilling(task) {
-    const project = (selectedClient.value?.projects || []).find(
-        (candidate) => Number(candidate.id) === Number(task?.project_id)
-    );
-
     return {
-        mode: task?.billing_mode || project?.billing_mode || 'time',
-        label: task?.unit_label || project?.unit_label || null,
-        rate: task?.unit_rate ?? project?.unit_rate ?? null,
-        inherited: !task?.billing_mode,
+        mode: task?.billing_mode || 'time',
+        label: task?.unit_label || null,
+        rate: task?.unit_rate ?? null,
+        inherited: false,
     };
 }
 
@@ -311,9 +295,6 @@ function startProjectEdit(project) {
     projectEditForm.value = {
         name: project.name || '',
         description: project.description || '',
-        billing_mode: project.billing_mode || '',
-        unit_label: project.unit_label || '',
-        unit_rate: project.unit_rate ?? '',
     };
 }
 
@@ -322,9 +303,6 @@ function cancelProjectEdit() {
     projectEditForm.value = {
         name: '',
         description: '',
-        billing_mode: '',
-        unit_label: '',
-        unit_rate: '',
     };
 }
 
@@ -334,7 +312,7 @@ function startTaskEdit(task) {
         project_id: task?.project_id ? String(task.project_id) : '',
         name: task.name || '',
         description: task.description || '',
-        billing_mode: task.billing_mode || '',
+        billing_mode: task.billing_mode || 'time',
         unit_label: task.unit_label || '',
         unit_rate: task.unit_rate ?? '',
     };
@@ -346,7 +324,7 @@ function cancelTaskEdit() {
         project_id: '',
         name: '',
         description: '',
-        billing_mode: '',
+        billing_mode: 'time',
         unit_label: '',
         unit_rate: '',
     };
@@ -416,7 +394,6 @@ async function createProject() {
             client_id: selectedClient.value.id,
             name: projectDraft.value.name,
             description: projectDraft.value.description || null,
-            ...billingPayload(projectDraft.value),
         });
 
         await refreshClients();
@@ -450,7 +427,6 @@ async function saveProjectEdit(project) {
         const response = await axios.put(`/projects/${project.id}`, {
             name: projectEditForm.value.name,
             description: projectEditForm.value.description || null,
-            ...billingPayload(projectEditForm.value),
         });
 
         await refreshClients();
@@ -510,6 +486,10 @@ async function createTask() {
         return;
     }
 
+    if (taskDraft.value.billing_mode === 'unit' && (!taskDraft.value.unit_label?.trim() || String(taskDraft.value.unit_rate ?? '').trim() === '')) {
+        setStatus('Warning: unit billing works best when both unit name and rate are set.', 'error');
+    }
+
     isSaving.value = true;
 
     try {
@@ -518,7 +498,7 @@ async function createTask() {
             project_id: Number(taskDraft.value.project_id),
             name: taskDraft.value.name,
             description: taskDraft.value.description || null,
-            ...billingPayload(taskDraft.value),
+            ...taskBillingPayload(taskDraft.value),
         });
 
         await refreshClients();
@@ -551,6 +531,10 @@ async function saveTaskEdit(task) {
         return;
     }
 
+    if (taskEditForm.value.billing_mode === 'unit' && (!taskEditForm.value.unit_label?.trim() || String(taskEditForm.value.unit_rate ?? '').trim() === '')) {
+        setStatus('Warning: unit billing works best when both unit name and rate are set.', 'error');
+    }
+
     const validProject = selectedClientActiveProjects.value.some(
         (project) => String(project.id) === taskEditForm.value.project_id
     );
@@ -567,7 +551,7 @@ async function saveTaskEdit(task) {
             project_id: Number(taskEditForm.value.project_id),
             name: taskEditForm.value.name,
             description: taskEditForm.value.description || null,
-            ...billingPayload(taskEditForm.value),
+            ...taskBillingPayload(taskEditForm.value),
         });
 
         await refreshClients();
@@ -879,32 +863,6 @@ ensureClientSelection();
                                         placeholder="Description (optional)"
                                         :disabled="isSaving"
                                     />
-                                    <select
-                                        v-model="projectDraft.billing_mode"
-                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                        :disabled="isSaving"
-                                    >
-                                        <option value="">Hourly (default)</option>
-                                        <option value="unit">Per unit</option>
-                                    </select>
-                                    <input
-                                        v-if="projectDraft.billing_mode === 'unit'"
-                                        v-model="projectDraft.unit_label"
-                                        type="text"
-                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                        placeholder="Unit name (e.g. apartment)"
-                                        :disabled="isSaving"
-                                    />
-                                    <input
-                                        v-if="projectDraft.billing_mode === 'unit'"
-                                        v-model="projectDraft.unit_rate"
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                        placeholder="Rate per unit"
-                                        :disabled="isSaving"
-                                    />
                                     <button
                                         type="button"
                                         class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
@@ -995,32 +953,6 @@ ensureClientSelection();
                                                 placeholder="Description"
                                                 :disabled="isSaving"
                                             />
-                                            <select
-                                                v-model="projectEditForm.billing_mode"
-                                                class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                                :disabled="isSaving"
-                                            >
-                                                <option value="">Hourly (default)</option>
-                                                <option value="unit">Per unit</option>
-                                            </select>
-                                            <div v-if="projectEditForm.billing_mode === 'unit'" class="flex gap-2">
-                                                <input
-                                                    v-model="projectEditForm.unit_label"
-                                                    type="text"
-                                                    class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                                    placeholder="Unit name"
-                                                    :disabled="isSaving"
-                                                />
-                                                <input
-                                                    v-model="projectEditForm.unit_rate"
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                                    placeholder="Rate"
-                                                    :disabled="isSaving"
-                                                />
-                                            </div>
                                             <div class="flex items-center gap-2">
                                                 <button
                                                     type="button"
@@ -1091,8 +1023,7 @@ ensureClientSelection();
                                         class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                                         :disabled="isSaving"
                                     >
-                                        <option value="">Inherit from project</option>
-                                        <option value="time">Hourly</option>
+                                        <option value="time">Hourly (default)</option>
                                         <option value="unit">Per unit</option>
                                     </select>
                                     <input
@@ -1100,7 +1031,7 @@ ensureClientSelection();
                                         v-model="taskDraft.unit_label"
                                         type="text"
                                         class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                        placeholder="Unit name (inherits if blank)"
+                                        placeholder="Unit name"
                                         :disabled="isSaving"
                                     />
                                     <input
@@ -1110,9 +1041,12 @@ ensureClientSelection();
                                         step="0.01"
                                         min="0"
                                         class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                        placeholder="Rate (inherits if blank)"
+                                        placeholder="Rate"
                                         :disabled="isSaving"
                                     />
+                                    <p v-if="taskDraft.billing_mode === 'unit' && (!taskDraft.unit_label || String(taskDraft.unit_rate ?? '').trim() === '')" class="sm:col-span-4 text-xs text-amber-700 dark:text-amber-300">
+                                        Warning: Set both unit name and rate for accurate per-unit billing.
+                                    </p>
                                     <button
                                         type="button"
                                         class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
@@ -1238,8 +1172,7 @@ ensureClientSelection();
                                                 class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                                                 :disabled="isSaving"
                                             >
-                                                <option value="">Inherit from project</option>
-                                                <option value="time">Hourly</option>
+                                                <option value="time">Hourly (default)</option>
                                                 <option value="unit">Per unit</option>
                                             </select>
                                             <div v-if="taskEditForm.billing_mode === 'unit'" class="flex gap-2">
@@ -1247,7 +1180,7 @@ ensureClientSelection();
                                                     v-model="taskEditForm.unit_label"
                                                     type="text"
                                                     class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                                    placeholder="Unit name (inherits if blank)"
+                                                    placeholder="Unit name"
                                                     :disabled="isSaving"
                                                 />
                                                 <input
@@ -1256,10 +1189,13 @@ ensureClientSelection();
                                                     step="0.01"
                                                     min="0"
                                                     class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                                                    placeholder="Rate (inherits if blank)"
+                                                    placeholder="Rate"
                                                     :disabled="isSaving"
                                                 />
                                             </div>
+                                            <p v-if="taskEditForm.billing_mode === 'unit' && (!taskEditForm.unit_label || String(taskEditForm.unit_rate ?? '').trim() === '')" class="text-xs text-amber-700 dark:text-amber-300">
+                                                Warning: Set both unit name and rate for accurate per-unit billing.
+                                            </p>
                                             <div class="flex items-center gap-2">
                                                 <button
                                                     type="button"

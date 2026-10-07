@@ -36,7 +36,7 @@ class TaskController extends Controller
 
         $query = Task::query()
             ->where('team_id', $teamId)
-            ->with(['client:id,name', 'project:id,name,client_id,billing_mode,unit_label,unit_label_plural,unit_rate'])
+            ->with(['client:id,name', 'project:id,name,client_id'])
             ->orderBy('name');
 
         if (isset($validated['client_id'])) {
@@ -106,7 +106,7 @@ class TaskController extends Controller
             'project_id' => $project->id,
             'name' => $taskName,
             'description' => $validated['description'] ?? null,
-            'billing_mode' => $validated['billing_mode'] ?? null,
+            'billing_mode' => $validated['billing_mode'] ?: WorkEntry::MODE_TIME,
             'unit_label' => $this->normaliseUnitLabel($validated['unit_label'] ?? null),
             'unit_label_plural' => $this->normaliseUnitLabel($validated['unit_label_plural'] ?? null),
             'unit_rate' => $validated['unit_rate'] ?? null,
@@ -118,7 +118,7 @@ class TaskController extends Controller
 
         return response()->json([
             'message' => 'Task created.',
-            'task' => $task->load(['client:id,name', 'project:id,name,client_id,billing_mode,unit_label,unit_label_plural,unit_rate']),
+            'task' => $task->load(['client:id,name', 'project:id,name,client_id']),
             'billing_config' => $task->billingConfig(),
         ], 201);
     }
@@ -189,7 +189,7 @@ class TaskController extends Controller
         }
 
         if (array_key_exists('billing_mode', $validated)) {
-            $task->billing_mode = $validated['billing_mode'] ?: null;
+            $task->billing_mode = $validated['billing_mode'] ?: WorkEntry::MODE_TIME;
         }
 
         if (array_key_exists('unit_label', $validated)) {
@@ -237,7 +237,7 @@ class TaskController extends Controller
             $task->save();
         });
 
-        $freshTask = $task->fresh()->load(['client:id,name', 'project:id,name,client_id,billing_mode,unit_label,unit_label_plural,unit_rate']);
+        $freshTask = $task->fresh()->load(['client:id,name', 'project:id,name,client_id']);
 
         return response()->json([
             'message' => 'Task updated.',

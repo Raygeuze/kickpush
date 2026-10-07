@@ -161,7 +161,6 @@ class TimesheetController extends Controller
             'tasks' => Task::query()
                 ->where('team_id', $team->id)
                 ->where('is_active', true)
-                ->with('project:id,billing_mode,unit_label,unit_label_plural,unit_rate')
                 ->orderBy('name')
                 ->get(['id', 'project_id', 'client_id', 'name', 'billing_mode', 'unit_label', 'unit_label_plural', 'unit_rate'])
                 ->map(fn (Task $task): array => [

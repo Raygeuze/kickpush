@@ -49,21 +49,21 @@ class Task extends Model
 
     public function resolvedBillingMode(): string
     {
-        $mode = $this->billing_mode ?: optional($this->resolvedProject())->billing_mode;
+        $mode = $this->billing_mode;
 
         return in_array($mode, WorkEntry::MODES, true) ? $mode : WorkEntry::MODE_TIME;
     }
 
     public function resolvedUnitLabel(): ?string
     {
-        $label = $this->unit_label ?: optional($this->resolvedProject())->unit_label;
+        $label = $this->unit_label;
 
         return $label ? (string) $label : null;
     }
 
     public function resolvedUnitLabelPlural(): ?string
     {
-        $plural = $this->unit_label_plural ?: optional($this->resolvedProject())->unit_label_plural;
+        $plural = $this->unit_label_plural;
 
         if ($plural) {
             return (string) $plural;
@@ -76,13 +76,13 @@ class Task extends Model
 
     public function resolvedUnitRate(): ?float
     {
-        $rate = $this->unit_rate ?? optional($this->resolvedProject())->unit_rate;
+        $rate = $this->unit_rate;
 
         return $rate === null ? null : (float) $rate;
     }
 
     /**
-     * Resolved billing settings after project inheritance, keyed for API payloads.
+     * Resolved billing settings keyed for API payloads.
      */
     public function billingConfig(): array
     {
@@ -93,20 +93,9 @@ class Task extends Model
             'unit_label' => $this->resolvedUnitLabel(),
             'unit_label_plural' => $this->resolvedUnitLabelPlural(),
             'unit_rate' => $this->resolvedUnitRate(),
-            'is_inherited' => $this->billing_mode === null,
+            'is_inherited' => false,
             'is_configured' => $mode !== WorkEntry::MODE_UNIT
                 || ($this->resolvedUnitLabel() !== null && $this->resolvedUnitRate() !== null),
         ];
-    }
-
-    private function resolvedProject(): ?Project
-    {
-        if (!$this->project_id) {
-            return null;
-        }
-
-        $this->loadMissing('project');
-
-        return $this->project;
     }
 }

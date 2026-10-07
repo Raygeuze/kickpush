@@ -112,11 +112,11 @@ class UnitEntryController extends Controller
         }
 
         if ($task->resolvedUnitRate() === null) {
-            return 'Set a rate per unit on this task or its project before recording units.';
+            return 'Set a rate per unit on this task before recording units.';
         }
 
         if ($task->resolvedUnitLabel() === null) {
-            return 'Set a unit name on this task or its project before recording units.';
+            return 'Set a unit name on this task before recording units.';
         }
 
         return null;

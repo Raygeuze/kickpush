@@ -13,7 +13,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -26,13 +25,6 @@ class ProjectController extends Controller
         abort_unless($user && $user->currentTeam, 403, 'Select a team to continue.');
 
         return (int) $user->currentTeam->id;
-    }
-
-    private function normaliseUnitLabel(?string $label): ?string
-    {
-        $trimmed = trim((string) $label);
-
-        return $trimmed === '' ? null : $trimmed;
     }
 
     public function show(Request $request, int $projectId): Response
@@ -536,10 +528,6 @@ class ProjectController extends Controller
             'client_id' => 'required|integer|exists:clients,id',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:2000',
-            'billing_mode' => ['nullable', Rule::in(WorkEntry::MODES)],
-            'unit_label' => 'nullable|string|max:40',
-            'unit_label_plural' => 'nullable|string|max:40',
-            'unit_rate' => 'nullable|numeric|min:0|max:99999999.99',
         ]);
 
         $client = $this->findClientForActorOrFail((int) $validated['client_id']);
@@ -568,10 +556,6 @@ class ProjectController extends Controller
             'client_id' => $client->id,
             'name' => $projectName,
             'description' => $validated['description'] ?? null,
-            'billing_mode' => $validated['billing_mode'] ?? null,
-            'unit_label' => $this->normaliseUnitLabel($validated['unit_label'] ?? null),
-            'unit_label_plural' => $this->normaliseUnitLabel($validated['unit_label_plural'] ?? null),
-            'unit_rate' => $validated['unit_rate'] ?? null,
             'is_active' => true,
         ]);
 
@@ -590,10 +574,6 @@ class ProjectController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string|max:2000',
-            'billing_mode' => ['sometimes', 'nullable', Rule::in(WorkEntry::MODES)],
-            'unit_label' => 'sometimes|nullable|string|max:40',
-            'unit_label_plural' => 'sometimes|nullable|string|max:40',
-            'unit_rate' => 'sometimes|nullable|numeric|min:0|max:99999999.99',
             'is_active' => 'sometimes|boolean',
         ]);
 
@@ -623,22 +603,6 @@ class ProjectController extends Controller
 
         if (array_key_exists('description', $validated)) {
             $project->description = $validated['description'];
-        }
-
-        if (array_key_exists('billing_mode', $validated)) {
-            $project->billing_mode = $validated['billing_mode'] ?: null;
-        }
-
-        if (array_key_exists('unit_label', $validated)) {
-            $project->unit_label = $this->normaliseUnitLabel($validated['unit_label']);
-        }
-
-        if (array_key_exists('unit_label_plural', $validated)) {
-            $project->unit_label_plural = $this->normaliseUnitLabel($validated['unit_label_plural']);
-        }
-
-        if (array_key_exists('unit_rate', $validated)) {
-            $project->unit_rate = $validated['unit_rate'];
         }
 
         if (array_key_exists('is_active', $validated)) {

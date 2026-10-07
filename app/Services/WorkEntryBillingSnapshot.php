@@ -40,8 +40,7 @@ class WorkEntryBillingSnapshot
     }
 
     /**
-     * Unit pricing is resolved from the task (inheriting the project), never from the user/client
-     * hourly waterfall.
+     * Unit pricing is resolved from the task, never from the user/client hourly waterfall.
      */
     public function unitAttributes(?Task $task): array
     {
