@@ -1070,6 +1070,7 @@ class InvoiceController extends Controller
             return [
             'label' => $lineItem->name ?: 'One-off line item',
             'description' => $lineItem->description,
+            'date' => null,
             'amount' => (float) $lineItem->amount,
             ];
         })->values()->all();
@@ -1080,6 +1081,7 @@ class InvoiceController extends Controller
             $lineItems[] = [
                 'label' => 'Billable time',
                 'description' => $totalHours . ' hours @ blended $' . number_format($effectiveHourlyRate, 2) . '/hr',
+                'date' => null,
                 'amount' => $timeAmount,
             ];
         }
@@ -1098,6 +1100,7 @@ class InvoiceController extends Controller
                 'description' => $freshInvoice->discount_type === 'percentage'
                     ? number_format((float) $freshInvoice->discount_value, 2) . '%'
                     : 'Fixed amount',
+                'date' => null,
                 'amount' => -$discountAmount,
             ];
         }
@@ -1122,9 +1125,10 @@ class InvoiceController extends Controller
     }
 
     /**
-     * One PDF line per distinct unit type and rate, e.g. "12 rooms @ $25.00".
+     * One PDF line per distinct project/task/unit rate combination, e.g.
+     * "Resort - 2 Bed Unit Clean | 12 x rooms".
      *
-     * @return array<int, array{label: string, description: ?string, amount: float}>
+     * @return array<int, array{label: string, description: ?string, date: ?string, amount: float}>
      */
     private function invoiceUnitLines(Invoice $invoice): array
     {
@@ -1132,21 +1136,46 @@ class InvoiceController extends Controller
             ->where('invoice_id', $invoice->id)
             ->where('billing_mode', WorkEntry::MODE_UNIT)
             ->whereNotNull('stopped_at')
-            ->selectRaw('task_name_snapshot, unit_label_snapshot, unit_label_plural_snapshot, unit_rate_snapshot, COALESCE(SUM(quantity), 0) as total_quantity')
-            ->groupBy('task_name_snapshot', 'unit_label_snapshot', 'unit_label_plural_snapshot', 'unit_rate_snapshot')
+            ->selectRaw('project_name_snapshot, task_name_snapshot, notes as session_description, unit_label_snapshot, unit_label_plural_snapshot, unit_rate_snapshot, MIN(started_at) as first_started_at, MAX(started_at) as last_started_at, COALESCE(SUM(quantity), 0) as total_quantity')
+            ->groupBy('project_name_snapshot', 'task_name_snapshot', 'notes', 'unit_label_snapshot', 'unit_label_plural_snapshot', 'unit_rate_snapshot')
             ->get();
 
         return $rows->map(function (WorkEntry $row): array {
             $quantity = (float) $row->total_quantity;
             $rate = (float) $row->unit_rate_snapshot;
+            $projectName = $row->project_name_snapshot ?: 'Unassigned Project';
+            $taskName = $row->task_name_snapshot ?: 'Unit work';
+            $sessionDescription = trim((string) ($row->session_description ?? ''));
+            $dateText = $this->formatInvoiceDateRange($row->first_started_at, $row->last_started_at);
 
             return [
-                'label' => $row->task_name_snapshot ?: 'Unit work',
-                'description' => $this->formatQuantity($quantity).' '.$row->unitLabelFor($quantity)
-                    .' @ $'.number_format($rate, 2),
+                'label' => $projectName.' - '.$taskName,
+                'description' => $this->formatQuantity($quantity).' x '.$row->unitLabelFor($quantity)
+                    .' - '.($sessionDescription !== '' ? $sessionDescription : 'No description'),
+                'date' => $dateText,
                 'amount' => round($quantity * $rate, 2),
             ];
         })->values()->all();
+    }
+
+    private function formatInvoiceDateRange($firstStartedAt, $lastStartedAt): ?string
+    {
+        if ($firstStartedAt === null || $lastStartedAt === null) {
+            return null;
+        }
+
+        try {
+            $firstDate = CarbonImmutable::parse($firstStartedAt)->toDateString();
+            $lastDate = CarbonImmutable::parse($lastStartedAt)->toDateString();
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if ($firstDate === $lastDate) {
+            return $firstDate;
+        }
+
+        return $firstDate.' to '.$lastDate;
     }
 
     private function formatQuantity(float $quantity): string
@@ -1195,6 +1224,8 @@ class InvoiceController extends Controller
             $projectName = optional($project)->name ?? $first->project_name_snapshot ?? 'Unassigned Project';
             $totalDurationSeconds = (int) $projectSessions->sum(fn (WorkEntry $session): int => (int) ($session->duration_seconds ?? 0));
             $billableTimeAmount = 0.0;
+            $timeSessionsCount = 0;
+            $timeDurationSeconds = 0;
 
             foreach ($projectSessions as $session) {
                 if ($session->isUnitBased()) {
@@ -1205,6 +1236,8 @@ class InvoiceController extends Controller
                 }
 
                 $durationSeconds = max(0, (int) ($session->duration_seconds ?? 0));
+                $timeSessionsCount += 1;
+                $timeDurationSeconds += $durationSeconds;
                 $hourlyRate = $this->resolveSessionHourlyRate($session, $clientHourlyRate, $userRateMap);
                 $billableTimeAmount += ($durationSeconds / 3600) * $hourlyRate;
             }
@@ -1217,6 +1250,8 @@ class InvoiceController extends Controller
                 'project_name' => $projectName,
                 'sessions_count' => (int) $projectSessions->count(),
                 'total_duration_seconds' => $totalDurationSeconds,
+                'time_sessions_count' => $timeSessionsCount,
+                'time_duration_seconds' => $timeDurationSeconds,
                 'billable_time_amount' => $billableTimeAmount,
             ];
         })->sortBy(fn (array $project): string => strtolower((string) ($project['project_name'] ?? '')))

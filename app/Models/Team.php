@@ -25,6 +25,7 @@ class Team extends JetstreamTeam
         'bank_account_name',
         'bank_name',
         'bsb_code',
+        'abn',
         'bank_account_number',
     ];
 

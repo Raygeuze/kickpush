@@ -50,6 +50,12 @@ function submit() {
 
     props.state.recordUnits();
 }
+
+function unitTaskLabel(option) {
+    const unitName = option?.unit_label || 'unit';
+
+    return `${option.name} - ${unitName}`;
+}
 </script>
 
 <template>
@@ -102,7 +108,7 @@ function submit() {
                         :disabled="!form.project_id"
                     >
                         <option value="">Select task</option>
-                        <option v-for="option in state.unitProjectTasks" :key="option.id" :value="String(option.id)">{{ option.name }}</option>
+                        <option v-for="option in state.unitProjectTasks" :key="option.id" :value="String(option.id)">{{ unitTaskLabel(option) }}</option>
                     </select>
                 </label>
             </div>

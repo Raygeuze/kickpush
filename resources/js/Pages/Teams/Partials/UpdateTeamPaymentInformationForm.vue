@@ -1,5 +1,7 @@
 <script setup>
+import { computed } from 'vue';
 import { useForm } from '@inertiajs/vue3';
+import { usePage } from '@inertiajs/vue3';
 import ActionMessage from '@/Components/ActionMessage.vue';
 import FormSection from '@/Components/FormSection.vue';
 import InputError from '@/Components/InputError.vue';
@@ -14,10 +16,22 @@ const props = defineProps({
     },
 });
 
+const page = usePage();
+
+const companyCountry = computed(() => {
+    const teamOwnerCountry = props.team?.owner?.country;
+    const currentUserCountry = page.props?.auth?.user?.country;
+
+    return String(teamOwnerCountry || currentUserCountry || '').toUpperCase();
+});
+
+const isAustralianCompany = computed(() => companyCountry.value === 'AU');
+
 const form = useForm({
     bank_account_name: props.team.bank_account_name ?? '',
     bank_name: props.team.bank_name ?? '',
     bsb_code: props.team.bsb_code ?? '',
+    abn: props.team.abn ?? '',
     bank_account_number: props.team.bank_account_number ?? '',
 });
 
@@ -74,6 +88,19 @@ const updateTeamPaymentInformation = () => {
                     autocomplete="off"
                 />
                 <InputError :message="form.errors.bsb_code" class="mt-2" />
+            </div>
+
+            <div v-if="isAustralianCompany" class="col-span-6 sm:col-span-4">
+                <InputLabel for="team_abn" value="Australian Business Number (ABN)" />
+                <TextInput
+                    id="team_abn"
+                    v-model="form.abn"
+                    type="text"
+                    class="mt-1 block w-full"
+                    autocomplete="off"
+                    placeholder="e.g. 12 345 678 901"
+                />
+                <InputError :message="form.errors.abn" class="mt-2" />
             </div>
 
             <div class="col-span-6 sm:col-span-4">

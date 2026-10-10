@@ -89,17 +89,6 @@ class TaskController extends Controller
             ], 422);
         }
 
-        $nameExists = Task::query()
-            ->where('project_id', $project->id)
-            ->whereRaw('LOWER(name) = ?', [mb_strtolower($taskName)])
-            ->exists();
-
-        if ($nameExists) {
-            return response()->json([
-                'message' => 'A task with this name already exists in the selected project.',
-            ], 422);
-        }
-
         $task = Task::create([
             'team_id' => $this->currentTeamIdOrFail(),
             'client_id' => $client->id,
@@ -165,19 +154,6 @@ class TaskController extends Controller
             if ($taskName === '') {
                 return response()->json([
                     'message' => 'Task name is required.',
-                ], 422);
-            }
-
-            $projectId = (int) ($task->project_id);
-            $nameExists = Task::query()
-                ->where('project_id', $projectId)
-                ->where('id', '!=', $task->id)
-                ->whereRaw('LOWER(name) = ?', [mb_strtolower($taskName)])
-                ->exists();
-
-            if ($nameExists) {
-                return response()->json([
-                    'message' => 'A task with this name already exists in this project.',
                 ], 422);
             }
 

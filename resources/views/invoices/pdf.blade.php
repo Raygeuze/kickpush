@@ -86,7 +86,6 @@
     <div class="header">
         <h1 class="title">Invoice INV{{ $invoice->id }}</h1>
         <div class="meta muted">
-            <div>Status: {{ ucfirst($invoice->status) }}</div>
             <div>Issued: {{ $invoice->issued_at ? $invoice->issued_at->format('Y-m-d') : '-' }}</div>
         </div>
 
@@ -121,8 +120,9 @@
     <table>
         <thead>
         <tr>
-            <th style="width: 30%;">Item</th>
-            <th style="width: 50%;">Description</th>
+            <th style="width: 28%;">Item</th>
+            <th style="width: 36%;">Description</th>
+            <th style="width: 16%;">Date</th>
             <th style="width: 20%;" class="amount">Amount (AUD)</th>
         </tr>
         </thead>
@@ -130,7 +130,13 @@
         @if(!empty($projectTotals))
             @foreach($projectTotals as $project)
                 @php
-                    $seconds = (int) ($project['total_duration_seconds'] ?? 0);
+                    $timeSessionsCount = (int) ($project['time_sessions_count'] ?? 0);
+
+                    if ($timeSessionsCount <= 0) {
+                        continue;
+                    }
+
+                    $seconds = (int) ($project['time_duration_seconds'] ?? 0);
                     $hours = floor($seconds / 3600);
                     $minutes = floor(($seconds % 3600) / 60);
                     $secs = $seconds % 60;
@@ -138,7 +144,8 @@
                 @endphp
                 <tr>
                     <td>{{ $project['project_name'] ?? 'Unassigned Project' }}</td>
-                    <td>{{ (int) ($project['sessions_count'] ?? 0) }} sessions • {{ $duration }} tracked</td>
+                    <td>{{ $timeSessionsCount }} sessions • {{ $duration }} tracked</td>
+                    <td>-</td>
                     <td class="amount">A${{ number_format((float) ($project['billable_time_amount'] ?? 0), 2) }}</td>
                 </tr>
             @endforeach
@@ -148,6 +155,7 @@
             <tr>
                 <td>{{ $line['label'] }}</td>
                 <td>{{ $line['description'] ?: '-' }}</td>
+                <td>{{ $line['date'] ?? '-' }}</td>
                 <td class="amount">A${{ number_format((float) $line['amount'], 2) }}</td>
             </tr>
         @endforeach
@@ -156,6 +164,7 @@
             <tr>
                 <td><strong>Total billable time</strong></td>
                 <td>{{ $billableTimeLine['description'] ?: '-' }}</td>
+                <td>{{ $billableTimeLine['date'] ?? '-' }}</td>
                 <td class="amount"><strong>A${{ number_format((float) $billableTimeLine['amount'], 2) }}</strong></td>
             </tr>
         @endif
@@ -167,8 +176,10 @@
     </div>
 
     <div class="notes muted">
-        <div>Total tracked time: {{ number_format($totalDurationSeconds / 3600, 2) }} hours</div>
-        <div>Hourly rate applied: A${{ number_format((float) $hourlyRate, 2) }}/hr</div>
+        @if($billableTimeLine)
+            <div>Total tracked time: {{ number_format($totalDurationSeconds / 3600, 2) }} hours</div>
+            <div>Hourly rate applied: A${{ number_format((float) $hourlyRate, 2) }}/hr</div>
+        @endif
         <div>Payment due date: {{ $dueDate->format('Y-m-d') }}</div>
         @if($invoice->notes)
             <div style="margin-top: 8px;">Invoice notes: {{ $invoice->notes }}</div>
@@ -182,6 +193,7 @@
                     || !empty($team->bsb_code)
                     || !empty($team->bank_account_number)
                 );
+            $hasAbn = $team && !empty($team->abn);
         @endphp
 
         @if($hasPaymentInfo)
@@ -198,6 +210,10 @@
             @if(!empty($team->bank_account_number))
                 <div>Account Number: {{ $team->bank_account_number }}</div>
             @endif
+        @endif
+
+        @if($hasAbn)
+            <div style="margin-top: 12px;">ABN: {{ $team->abn }}</div>
         @endif
     </div>
 </div>
